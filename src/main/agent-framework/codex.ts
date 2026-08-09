@@ -45,7 +45,7 @@ export const CODEX_BRIDGE_MODEL = 'gpt-5.4'
 const CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95
 const CODEX_NATIVE_MODEL_CATALOG_FILENAME_PREFIX = 'model-catalog-'
 const CODEX_BUNDLED_MODEL_IDS_BY_VERSION = {
-  '0.144.6': [
+  '0.147.0': [
     'gpt-5.6-sol',
     'gpt-5.6-terra',
     'gpt-5.6-luna',
@@ -170,7 +170,7 @@ const buildCodexConfig = (provider: {
     model_provider: CODEX_PROVIDER_ID,
     model_providers: {
       [CODEX_PROVIDER_ID]: {
-        name: 'Open Science',
+        name: 'Research Agent',
         wire_api: 'responses',
         ...(baseUrl ? { base_url: baseUrl } : {}),
         ...(provider.key ? { requires_openai_auth: true } : {})

@@ -331,9 +331,9 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.platform }}" in
-            mac) candidate="$(find dist -type f -path '*/Open Science.app/Contents/MacOS/Open Science' -print -quit)" ;;
-            win) candidate="$(find dist -type f -path '*/win-unpacked/open-science.exe' -print -quit)" ;;
-            linux) candidate="$(find dist -type f -path '*/linux-unpacked/open-science' -print -quit)" ;;
+            mac) candidate="$(find dist -type f -path '*/Research Agent.app/Contents/MacOS/Research Agent' -print -quit)" ;;
+            win) candidate="$(find dist -type f -path '*/win-unpacked/research-agent.exe' -print -quit)" ;;
+            linux) candidate="$(find dist -type f -path '*/linux-unpacked/research-agent' -print -quit)" ;;
             *) echo "Unsupported packaged Electron platform" >&2; exit 1 ;;
           esac
           if [ -z "$candidate" ] || [ ! -f "$candidate" ]; then
@@ -354,7 +354,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          OPEN_SCIENCE_E2E_EXECUTABLE: ${{ steps.packaged_app.outputs.executable }}
+          RESEARCH_AGENT_E2E_EXECUTABLE: ${{ steps.packaged_app.outputs.executable }}
         run: npm run test:e2e:p0
 
       # Visual behavior uses the same renderer bundle on every package. Keep one canonical hard gate
@@ -368,7 +368,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          OPEN_SCIENCE_E2E_EXECUTABLE: ${{ steps.packaged_app.outputs.executable }}
+          RESEARCH_AGENT_E2E_EXECUTABLE: ${{ steps.packaged_app.outputs.executable }}
         run: npm run test:e2e:visual
 
       # Exercise both macOS distributables rather than treating the unpacked app launch above as
@@ -400,10 +400,10 @@ jobs:
         shell: bash
         run: |
           sudo apt-get install --yes ./dist/*.deb
-          trap 'sudo apt-get remove --yes open-science || true' EXIT
+          trap 'sudo apt-get remove --yes research-agent || true' EXIT
           xvfb-run -a node scripts/linux-package-smoke.mjs \
             --artifact-dir dist \
-            --installed-executable /usr/bin/open-science
+            --installed-executable /usr/bin/research-agent
 
       - name: Record platform certification evidence
         if: >-

@@ -530,7 +530,7 @@ const sanitizeSettings = (value: unknown): StoredSettings => {
 
   // Only accept an absolute, normalized dataRoot. A relative path (corrupt or hand-edited
   // settings.json) would make the entire data tree resolve against process.cwd(); drop it so
-  // initDataRoot falls back to the default. Mirrors the OPEN_SCIENCE_STORAGE_ROOT absolute contract.
+  // initDataRoot falls back to the default. Mirrors the RESEARCH_AGENT_STORAGE_ROOT absolute contract.
   const dataRoot = asString(value.dataRoot)?.trim()
 
   if (dataRoot && isAbsolute(dataRoot)) {

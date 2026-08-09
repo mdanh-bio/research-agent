@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const ARTIFACT_PATTERN = /^aipoch-open-science-(.+)-mac-(?:arm64|x64)\.(dmg|zip)$/
-const SMOKE_ROOT_PREFIX = 'open-science-macos-package-smoke-'
+const ARTIFACT_PATTERN = /^research-agent-(.+)-mac-(?:arm64|x64)\.(dmg|zip)$/
+const APP_BUNDLE_NAME = 'Research Agent.app'
+const SMOKE_ROOT_PREFIX = 'research-agent-macos-package-smoke-'
 const STARTUP_TIMEOUT_MS = 60_000
 
 const delay = (milliseconds) =>
@@ -38,12 +39,17 @@ const findAppBundle = async (directory) => {
   if (matches.length !== 1) {
     throw new Error(`Expected exactly one .app in ${directory}; found ${matches.length}.`)
   }
+  if (basename(matches[0]) !== APP_BUNDLE_NAME) {
+    throw new Error(
+      `Expected packaged macOS bundle ${APP_BUNDLE_NAME}; found ${basename(matches[0])}.`
+    )
+  }
   return matches[0]
 }
 
 const parsePackagedAppEndpoint = (output) => {
   const match = output.match(
-    /Open Science Web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/
+    /Research Agent Web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/
   )
   if (!match) return undefined
   const url = new URL(match[1])
@@ -85,7 +91,7 @@ const runProcess = (executable, args, options = {}) =>
 const assertPackagedResources = async (appBundle) => {
   const resources = join(appBundle, 'Contents', 'Resources')
   const paths = [
-    join(appBundle, 'Contents', 'MacOS', 'Open Science'),
+    join(appBundle, 'Contents', 'MacOS', 'Research Agent'),
     join(resources, 'app.asar'),
     join(resources, 'micromamba'),
     // electron-builder compiles build/icon.icon into the adaptive catalog and also emits an ICNS
@@ -131,7 +137,7 @@ const launchAndProbe = async ({ executable, expectedVersion, env, userDataRoot }
     if (!response.ok) throw new Error(`Packaged macOS bootstrap returned HTTP ${response.status}.`)
     const bootstrap = await response.json()
     if (
-      bootstrap.appName !== 'Open Science' ||
+      bootstrap.appName !== 'Research Agent' ||
       bootstrap.appVersion !== expectedVersion ||
       bootstrap.platform !== 'darwin'
     ) {
@@ -211,7 +217,7 @@ const main = async () => {
   const userDataRoot = join(root, 'electron-profile')
   const env = {
     ...process.env,
-    OPEN_SCIENCE_E2E_STORAGE_ROOT: storageRoot
+    RESEARCH_AGENT_E2E_STORAGE_ROOT: storageRoot
   }
 
   try {

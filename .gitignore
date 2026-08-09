@@ -72,6 +72,7 @@ local/
 .codegraph/
 .mcp.json
 .codex/
+.research-agent/
 .worktree/
 .playwright-cli/
 .claude/
@@ -88,6 +89,13 @@ local/
 .mcp/
 .serena/
 .taskmaster/
+
+# App-owned SQLite state if a workspace/config root is accidentally placed inside a checkout.
+# Keep the inherited filename as a compatibility identifier; source fixtures with other names remain visible.
+open-science.db
+open-science.db-*
+prisma/dev.db
+prisma/dev.db-*
 
 # Locally downloaded CI build artifacts (Windows installer, etc.)
 dist-win-artifact/

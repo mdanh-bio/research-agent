@@ -23,7 +23,13 @@ const sampleHost = (overrides: Partial<ComputeHost> = {}): ComputeHost => ({
   scratchRoot: undefined,
   scratchPinned: false,
   concurrencyLimit: undefined,
-  probeResult: undefined,
+  probeResult: {
+    ok: true,
+    probedAt: '2026-08-10T00:00:00.000Z',
+    exitCode: 0,
+    errorTail: null,
+    detectedScheduler: 'none'
+  },
   detailsDoc: '',
   detailsUpdatedAt: undefined,
   detailsUpdatedBy: undefined,
@@ -35,7 +41,14 @@ const sampleHost = (overrides: Partial<ComputeHost> = {}): ComputeHost => ({
 const fakeTarget: ResolvedSshTarget = {
   sshBinary: '/usr/bin/ssh',
   host: 'biowulf.nih.gov',
-  extraArgs: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
+  extraArgs: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'],
+  connectionIdentity: {
+    configResolved: true,
+    alias: 'biowulf',
+    hostname: 'biowulf.nih.gov',
+    port: 22,
+    effectiveConfigHash: 'a'.repeat(64)
+  }
 }
 
 const makeFakeRunner = (result: Awaited<ReturnType<SshRunner['run']>>): SshRunner => ({

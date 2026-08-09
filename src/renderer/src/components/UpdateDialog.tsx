@@ -106,7 +106,7 @@ const UpdateDialog = (): React.JSX.Element | null => {
 
             {isApplying ? (
               <div className="mt-4 rounded-lg border border-border bg-muted/50 px-3 py-3 text-xs text-muted-foreground">
-                Open Science is stopping background tasks and will close to finish installing. The
+                Research Agent is stopping background tasks and will close to finish installing. The
                 update may take a moment; please don&apos;t reopen the app during this step. The
                 updated app will reopen automatically.
               </div>

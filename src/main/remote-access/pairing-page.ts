@@ -36,7 +36,7 @@ export const renderPairingPage = (params: {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <title>Connect to Open Science</title>
+    <title>Connect to Research Agent</title>
     <style>
       :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       * { box-sizing: border-box; }
@@ -67,10 +67,10 @@ export const renderPairingPage = (params: {
     <main class="card">
       <div class="brand">
         ${openScienceLogo}
-        <div class="brand-name">Open Science</div>
+        <div class="brand-name">Research Agent</div>
       </div>
       <h1>Approve this browser</h1>
-      <p>On your home computer, open Open Science → Settings → Remote control, then verify and approve the pairing code below.</p>
+      <p>On your home computer, open Research Agent → Settings → Remote control, then verify and approve the pairing code below.</p>
       <div class="code" aria-label="Pairing code">${code}</div>
       <p>Choose “Allow once” or “Always trust this browser”. Do not share this pairing code with anyone.</p>
       <div class="device">${browser} · ${platform}</div>
@@ -95,7 +95,7 @@ export const renderPairingPage = (params: {
           const result = await response.json();
           if (result.status === 'approved') {
             stopped = true;
-            setStatus('approved', 'Approved. Opening Open Science…');
+            setStatus('approved', 'Approved. Opening Research Agent…');
             window.setTimeout(() => window.location.replace('/'), 300);
             return;
           }

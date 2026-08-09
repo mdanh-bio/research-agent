@@ -75,6 +75,7 @@ describe('SkillCatalogModule', () => {
     await expect(catalog.saveGitHubToken('new-token')).rejects.toThrow('GitHub rejected this token')
 
     expect(requests[0]?.Authorization).toBe('Bearer new-token')
+    expect(requests[0]?.['User-Agent']).toBe('research-agent')
     expect(await repository.getSettings()).toMatchObject({
       githubTokenRef: oldRef,
       githubTokenMask: 'old…oken'

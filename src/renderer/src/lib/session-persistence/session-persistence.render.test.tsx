@@ -112,7 +112,7 @@ describe('session persistence startup', () => {
     expect(container.querySelector('div')?.dataset.hydrated).toBe('false')
     expect(container.querySelector('div')?.dataset.loading).toBe('false')
     expect(container.querySelector('[data-testid="load-error"]')?.textContent).toBe(
-      'Open Science could not read saved conversation data. Retry to continue.'
+      'Research Agent could not read saved conversation data. Retry to continue.'
     )
     expect(container.querySelector('[data-testid="load-error"]')?.textContent).not.toContain(
       '/Users/private'
@@ -184,7 +184,7 @@ describe('session persistence startup', () => {
       await Promise.resolve()
     })
     expect(container.querySelector('[data-testid="write-error"]')?.textContent).toBe(
-      'Open Science could not save the latest conversation changes. Retry before closing the app.'
+      'Research Agent could not save the latest conversation changes. Retry before closing the app.'
     )
     expect(container.querySelector('[data-testid="write-error"]')?.textContent).not.toContain(
       '/Users/private'
@@ -228,7 +228,7 @@ describe('session persistence startup', () => {
       await Promise.resolve()
     })
     expect(container.querySelector('[data-testid="write-error"]')?.textContent).toBe(
-      'Open Science could not save the latest conversation changes. Retry before closing the app.'
+      'Research Agent could not save the latest conversation changes. Retry before closing the app.'
     )
 
     await act(async () => {
@@ -462,7 +462,7 @@ describe('session persistence startup', () => {
     expect(container.querySelector('div')?.dataset.ready).toBe('false')
     expect(container.querySelector('div')?.dataset.loading).toBe('false')
     expect(container.querySelector('[data-testid="write-error"]')?.textContent).toBe(
-      'Open Science could not save the latest conversation changes. Retry before closing the app.'
+      'Research Agent could not save the latest conversation changes. Retry before closing the app.'
     )
     expect(reconcilePendingArtifactsApi).not.toHaveBeenCalled()
 

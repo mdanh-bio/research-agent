@@ -50,11 +50,15 @@ const createDependencies = (): HostApplicationCommandDependencies => ({
   cli: {
     getStatus: vi.fn(async () => ({
       installed: false,
-      target: '/bin/open-science',
+      target: '/bin/research-agent',
       onPath: false
     })),
-    install: vi.fn(async () => ({ installed: true, target: '/bin/open-science', onPath: true })),
-    uninstall: vi.fn(async () => ({ installed: false, target: '/bin/open-science', onPath: true }))
+    install: vi.fn(async () => ({ installed: true, target: '/bin/research-agent', onPath: true })),
+    uninstall: vi.fn(async () => ({
+      installed: false,
+      target: '/bin/research-agent',
+      onPath: true
+    }))
   },
   github: { getStars: vi.fn(async () => 42) },
   localFs: {
@@ -127,7 +131,11 @@ const createDependencies = (): HostApplicationCommandDependencies => ({
     dismissLegacyMovePrompt: vi.fn(async () => undefined)
   },
   update: {
-    getAppInfo: vi.fn(() => ({ name: 'Open Science', version: '1.0.0', copyright: 'Aipoch' })),
+    getAppInfo: vi.fn(() => ({
+      name: 'Research Agent',
+      version: '1.0.0',
+      copyright: 'mdanh-bio and AIPOCH contributors'
+    })),
     getStatus: vi.fn(() => updateStatus),
     check: vi.fn(async () => updateStatus),
     download: vi.fn(async () => updateStatus),
@@ -429,7 +437,7 @@ describe('Host application commands', () => {
         invocation([approval], ordinaryRemote)
       )
     ).rejects.toThrow(
-      'Pairing can only be managed from the Open Science desktop app or an approved browser.'
+      'Pairing can only be managed from the Research Agent desktop app or an approved browser.'
     )
     await expect(
       router.dispatcher.invoke(
@@ -444,7 +452,7 @@ describe('Host application commands', () => {
         hostApplicationCommands.remoteAccess.detect,
         invocation([], currentManager)
       )
-    ).rejects.toThrow('This action must be approved from the Open Science desktop app.')
+    ).rejects.toThrow('This action must be approved from the Research Agent desktop app.')
     expect(dependencies.remoteAccess.detect).not.toHaveBeenCalled()
   })
 

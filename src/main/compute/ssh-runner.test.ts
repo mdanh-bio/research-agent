@@ -1,13 +1,14 @@
 import { EventEmitter } from 'node:events'
-import { mkdirSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { homedir, platform, tmpdir } from 'node:os'
+import { platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const pit = it.skipIf(process.platform === 'win32')
 
 import { parseProbeOutput } from './compute-service'
+import { buildControlMasterConfig } from './interactive-ssh-broker'
 import {
   CappedOutput,
   SystemSshRunner,
@@ -50,10 +51,16 @@ const { platformMock } = vi.hoisted(() => ({
   platformMock: vi.fn(() => process.platform)
 }))
 
-// Mock only mkdirSync so we can assert the ~/.ssh/ctrl dir is created; everything else stays real.
+// Mock the control-directory filesystem checks; everything else stays real.
 vi.mock('node:fs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:fs')>()),
-  mkdirSync: vi.fn()
+  mkdirSync: vi.fn(),
+  chmodSync: vi.fn(),
+  lstatSync: vi.fn(() => ({
+    isDirectory: () => true,
+    isSymbolicLink: () => false,
+    uid: process.getuid?.() ?? 0
+  }))
 }))
 
 // Mock execFile so SystemSshRunner and the default readEffectiveConfig path
@@ -79,9 +86,9 @@ class FakeChild extends EventEmitter {
 // ---------------------------------------------------------------------------
 
 describe('resolveSshBinary', () => {
-  it('returns "ssh" on non-Windows platforms', () => {
+  it('uses the fixed system binary on macOS and PATH lookup on other Unix platforms', () => {
     if (platform() === 'win32') return // skip on actual Windows CI
-    expect(resolveSshBinary()).toBe('ssh')
+    expect(resolveSshBinary()).toBe(platform() === 'darwin' ? '/usr/bin/ssh' : 'ssh')
   })
 })
 
@@ -93,34 +100,59 @@ describe('resolveSshBinary', () => {
 describe('controlMasterArgs', () => {
   afterEach(() => {
     vi.mocked(mkdirSync).mockReset()
+    vi.mocked(chmodSync).mockReset()
+    vi.mocked(lstatSync).mockReset()
+    vi.mocked(lstatSync).mockReturnValue({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+      uid: process.getuid?.() ?? 0
+    } as ReturnType<typeof lstatSync>)
     // Restore platform mock so platform-conditional skip guards keep matching reality.
     platformMock.mockReturnValue(process.platform)
   })
 
-  it('creates ~/.ssh/ctrl (0700) and injects a per-alias ControlPath on non-Windows', () => {
+  it('creates the app-scoped control directory and injects an eight-hour hashed socket', () => {
     if (platform() === 'win32') return // Windows returns [] — asserted separately below
     const args = controlMasterArgs('myhost')
-    const ctrlDir = join(homedir(), '.ssh', 'ctrl')
+    const config = buildControlMasterConfig('myhost')
 
-    expect(mkdirSync).toHaveBeenCalledWith(ctrlDir, { recursive: true, mode: 0o700 })
-    expect(args).toEqual([
-      '-o',
-      'ControlMaster=auto',
-      '-o',
-      `ControlPath=${join(ctrlDir, '%r@%h:%p.myhost')}`,
-      '-o',
-      'ControlPersist=60'
-    ])
+    expect(mkdirSync).toHaveBeenCalledWith(config.controlDirectory, {
+      recursive: true,
+      mode: 0o700
+    })
+    expect(chmodSync).toHaveBeenCalledWith(config.controlDirectory, 0o700)
+    expect(args).toEqual(config.args)
+    expect(args).toContain('ControlPersist=28800')
+    expect(config.controlPath).not.toContain('myhost')
   })
 
-  it('still returns control args when mkdir fails (best-effort)', () => {
+  it('falls back to an ordinary connection when the control directory cannot be secured', () => {
     if (platform() === 'win32') return
     vi.mocked(mkdirSync).mockImplementationOnce(() => {
       throw new Error('EACCES')
     })
     const args = controlMasterArgs('h')
-    expect(args).toContain('ControlMaster=auto')
-    expect(args.some((a) => a.startsWith('ControlPath='))).toBe(true)
+    expect(args).toEqual([])
+  })
+
+  it('rejects a symlinked control directory', () => {
+    if (platform() === 'win32') return
+    vi.mocked(lstatSync).mockReturnValueOnce({
+      isDirectory: () => true,
+      isSymbolicLink: () => true,
+      uid: process.getuid?.() ?? 0
+    } as ReturnType<typeof lstatSync>)
+    expect(controlMasterArgs('h')).toEqual([])
+    expect(chmodSync).not.toHaveBeenCalled()
+  })
+
+  it('uses a different control socket when resolved endpoint options change', () => {
+    if (platform() === 'win32') return
+    const first = controlMasterArgs('myhost', 'user@host:22:key-a')
+    const changed = controlMasterArgs('myhost', 'user@host:2222:key-a')
+    const firstPath = first.find((entry) => entry.startsWith('ControlPath='))
+    const changedPath = changed.find((entry) => entry.startsWith('ControlPath='))
+    expect(changedPath).not.toBe(firstPath)
   })
 
   it('returns no args and creates no dir on Windows', () => {
@@ -302,6 +334,15 @@ describe('resolveSshTarget', () => {
     const target = await resolveSshTarget('aliyun-xt-test', undefined, async () => fakeSshG())
     expect(target.host).toBe('aliyun-xt-test')
     expect(target.host).not.toBe('47.98.96.100')
+    expect(target.connectionIdentity).toMatchObject({
+      configResolved: true,
+      alias: 'aliyun-xt-test',
+      hostname: '47.98.96.100',
+      user: 'ewen',
+      port: 22,
+      identityFile: '~/.ssh/aliyun-xt-test.pem'
+    })
+    expect(target.connectionIdentity?.effectiveConfigHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it('does not pass -i when identityFile override is absent (config handles it via alias)', async () => {
@@ -357,7 +398,17 @@ describe('resolveSshTarget', () => {
     })
     expect(target.host).toBe('bare-host')
     expect(target.extraArgs).toContain('BatchMode=yes')
+    expect(target.connectionIdentity?.configResolved).toBe(false)
   })
+
+  it.each(['-oProxyCommand=malicious', '../cluster', 'cluster name', 'cluster:*'])(
+    'rejects option-like or destination-unsafe alias %s before ssh -G',
+    async (alias) => {
+      const readConfig = vi.fn(async () => ({}))
+      await expect(resolveSshTarget(alias, undefined, readConfig)).rejects.toThrow(/alias/i)
+      expect(readConfig).not.toHaveBeenCalled()
+    }
+  )
 
   // When ssh -G resolves to the same user as the alias, the explicit -o User=
   // would be redundant with what ssh already applies via the alias; resolveSshTarget
@@ -389,8 +440,8 @@ describe('resolveSshTarget', () => {
   })
 
   // Default readEffectiveConfig path (ssh -G) — covers the readConfig-throws /
-  // parseSshG-empty branches when execFile fails. The injected mock invokes the
-  // promisified callback with an error so readEffectiveConfig catches and returns {}.
+  // parseSshG-empty branches when execFile fails. The resolver keeps a diagnostic bare-host target
+  // but marks its connection identity unresolved so job approval cannot use it.
   it('falls back to defaults when the default readConfig rejects (ssh -G failure)', async () => {
     execFileMock.mockImplementationOnce(
       (
@@ -404,6 +455,12 @@ describe('resolveSshTarget', () => {
       }
     )
     const target = await resolveSshTarget('bare-host', undefined) // no injected readConfig
+    expect(execFileMock).toHaveBeenCalledWith(
+      resolveSshBinary(),
+      ['-G', '--', 'bare-host'],
+      { timeout: 5000 },
+      expect.any(Function)
+    )
     expect(target.host).toBe('bare-host')
     expect(target.extraArgs).toContain('BatchMode=yes')
     expect(target.extraArgs).toContain('ConnectTimeout=10')
@@ -486,6 +543,16 @@ describe('SystemSshRunner', () => {
     expect(result.stderr).toBe('warn\n')
     expect(result.truncated).toBe(false)
     expect(result.timedOut).toBe(false)
+    expect(execFileMock.mock.calls[0]?.[1]).toEqual(['--', 'aliyun-xt-test', 'echo hello'])
+  })
+
+  it('rejects an unsafe target supplied without resolveSshTarget', async () => {
+    await expect(
+      runner.run({ ...target(), host: '-oProxyCommand=malicious' }, 'safe-hostname', {
+        timeoutMs: 5000
+      })
+    ).rejects.toThrow(/alias/i)
+    expect(execFileMock).not.toHaveBeenCalled()
   })
 
   it('forwards child.on("error") as exitCode=null and stderr=err.message', async () => {

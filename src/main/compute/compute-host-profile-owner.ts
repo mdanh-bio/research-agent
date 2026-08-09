@@ -48,14 +48,19 @@ export const parseProbeOutput = (stdout: string): ProbeScriptOutput => {
 
   const cpus = Number.parseInt(values['cpus'] ?? '', 10)
   const memMib = Number.parseInt(values['mem_mib'] ?? '', 10)
-  const detectedScheduler: ProbeScriptOutput['detectedScheduler'] =
-    values['sbatch'] === 'yes'
+  const schedulerValues = [values['sbatch'], values['qsub'], values['bsub']]
+  const schedulerEvidenceComplete = schedulerValues.every(
+    (value) => value === 'yes' || value === 'no'
+  )
+  const detectedScheduler: ProbeScriptOutput['detectedScheduler'] = schedulerEvidenceComplete
+    ? values['sbatch'] === 'yes'
       ? 'slurm'
       : values['qsub'] === 'yes'
         ? 'pbs'
         : values['bsub'] === 'yes'
           ? 'lsf'
           : 'none'
+    : undefined
 
   return {
     os: values['os'] || undefined,
@@ -111,7 +116,7 @@ export class ComputeHostProfileOwner {
         exitCode: null,
         errorTail: error instanceof Error ? error.message : String(error)
       }
-      await this.repository.updateProbeResult(providerId, result, 'direct_ssh')
+      await this.repository.updateProbeResult(providerId, result, 'unclassified')
       return result
     }
 
@@ -148,11 +153,34 @@ export class ComputeHostProfileOwner {
         exitCode: runResult.exitCode,
         errorTail: errorTail(runResult.stderr, runResult.stdout) || 'Connection failed'
       }
-      await this.repository.updateProbeResult(providerId, result, 'direct_ssh')
+      await this.repository.updateProbeResult(providerId, result, 'unclassified')
+      return result
+    }
+
+    if (runResult.exitCode !== 0) {
+      const result: ProbeResult = {
+        ok: false,
+        probedAt,
+        exitCode: runResult.exitCode,
+        errorTail:
+          errorTail(runResult.stderr, runResult.stdout) ||
+          `Probe exited with ${runResult.exitCode ?? 'no status'}`
+      }
+      await this.repository.updateProbeResult(providerId, result, 'unclassified')
       return result
     }
 
     const parsed = parseProbeOutput(runResult.stdout)
+    if (!parsed.detectedScheduler) {
+      const result: ProbeResult = {
+        ok: false,
+        probedAt,
+        exitCode: runResult.exitCode,
+        errorTail: 'Probe did not return a complete scheduler classification.'
+      }
+      await this.repository.updateProbeResult(providerId, result, 'unclassified')
+      return result
+    }
     const shape =
       parsed.detectedScheduler && parsed.detectedScheduler !== 'none'
         ? 'scheduler_cluster'

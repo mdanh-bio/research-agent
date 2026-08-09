@@ -100,6 +100,101 @@ const NOTIFICATION_INBOX_ITEM_INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS "NotificationInboxItem_projectId_idx" ON "NotificationInboxItem"("projectId")`
 ]
 
+// Transparent routing metadata. These tables deliberately retain only policy, run, attempt, and
+// runtime-thread identifiers; prompts/messages remain authoritative in Session JSON.
+const ROUTING_POLICY_SNAPSHOT_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "RoutingPolicySnapshot" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT,
+    "sessionId" TEXT,
+    "workClass" TEXT NOT NULL,
+    "policyId" TEXT NOT NULL,
+    "policyVersion" TEXT NOT NULL,
+    "policySource" TEXT NOT NULL,
+    "policyJson" TEXT NOT NULL,
+    "policyHash" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`
+
+const AGENT_RUN_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "AgentRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "parentAgentRunId" TEXT,
+    "policySnapshotId" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "promptMessageId" TEXT,
+    "role" TEXT NOT NULL,
+    "workClass" TEXT NOT NULL,
+    "runtime" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "budgetJson" TEXT,
+    "outputArtifactIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" DATETIME,
+    "finishedAt" DATETIME,
+    CONSTRAINT "AgentRun_parentAgentRunId_fkey" FOREIGN KEY ("parentAgentRunId") REFERENCES "AgentRun" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "AgentRun_policySnapshotId_fkey" FOREIGN KEY ("policySnapshotId") REFERENCES "RoutingPolicySnapshot" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);`
+
+const MODEL_ATTEMPT_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "ModelAttempt" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "agentRunId" TEXT NOT NULL,
+    "sequence" INTEGER NOT NULL,
+    "trigger" TEXT NOT NULL,
+    "backend" TEXT NOT NULL,
+    "providerId" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "reasoningEffort" TEXT NOT NULL,
+    "targetCapabilitiesJson" TEXT NOT NULL DEFAULT '[]',
+    "targetDataBoundary" TEXT NOT NULL,
+    "targetContextWindow" INTEGER,
+    "requestHash" TEXT NOT NULL,
+    "result" TEXT NOT NULL DEFAULT 'running',
+    "failureCategory" TEXT,
+    "sideEffectsStarted" BOOLEAN NOT NULL DEFAULT false,
+    "fallbackApprovalId" TEXT,
+    "fallbackApprovalJson" TEXT,
+    "latencyMs" INTEGER,
+    "inputTokens" BIGINT,
+    "outputTokens" BIGINT,
+    "costUsdMicros" BIGINT,
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "finishedAt" DATETIME,
+    CONSTRAINT "ModelAttempt_agentRunId_fkey" FOREIGN KEY ("agentRunId") REFERENCES "AgentRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);`
+
+const MODEL_ATTEMPT_ADD_FALLBACK_APPROVAL_ID_DDL = `ALTER TABLE "ModelAttempt" ADD COLUMN "fallbackApprovalId" TEXT`
+const MODEL_ATTEMPT_ADD_FALLBACK_APPROVAL_JSON_DDL = `ALTER TABLE "ModelAttempt" ADD COLUMN "fallbackApprovalJson" TEXT`
+
+const RUNTIME_THREAD_LINK_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "RuntimeThreadLink" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "agentRunId" TEXT NOT NULL,
+    "appSessionId" TEXT NOT NULL,
+    "backend" TEXT NOT NULL,
+    "runtimeThreadId" TEXT NOT NULL,
+    "parentRuntimeThreadId" TEXT,
+    "ephemeral" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "closedAt" DATETIME,
+    CONSTRAINT "RuntimeThreadLink_agentRunId_fkey" FOREIGN KEY ("agentRunId") REFERENCES "AgentRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);`
+
+const MODEL_ROUTING_INDEX_DDLS = [
+  `CREATE INDEX IF NOT EXISTS "RoutingPolicySnapshot_projectId_sessionId_createdAt_idx" ON "RoutingPolicySnapshot"("projectId", "sessionId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "RoutingPolicySnapshot_policyId_policyVersion_idx" ON "RoutingPolicySnapshot"("policyId", "policyVersion")`,
+  `CREATE INDEX IF NOT EXISTS "AgentRun_projectId_sessionId_createdAt_idx" ON "AgentRun"("projectId", "sessionId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "AgentRun_parentAgentRunId_idx" ON "AgentRun"("parentAgentRunId")`,
+  `CREATE INDEX IF NOT EXISTS "AgentRun_policySnapshotId_idx" ON "AgentRun"("policySnapshotId")`,
+  `CREATE INDEX IF NOT EXISTS "AgentRun_status_idx" ON "AgentRun"("status")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "ModelAttempt_agentRunId_sequence_key" ON "ModelAttempt"("agentRunId", "sequence")`,
+  `CREATE INDEX IF NOT EXISTS "ModelAttempt_agentRunId_startedAt_idx" ON "ModelAttempt"("agentRunId", "startedAt")`,
+  `CREATE INDEX IF NOT EXISTS "ModelAttempt_providerId_model_startedAt_idx" ON "ModelAttempt"("providerId", "model", "startedAt")`,
+  `CREATE INDEX IF NOT EXISTS "ModelAttempt_result_idx" ON "ModelAttempt"("result")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "ModelAttempt_fallbackApprovalId_key" ON "ModelAttempt"("fallbackApprovalId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "RuntimeThreadLink_backend_runtimeThreadId_key" ON "RuntimeThreadLink"("backend", "runtimeThreadId")`,
+  `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_agentRunId_idx" ON "RuntimeThreadLink"("agentRunId")`,
+  `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_appSessionId_createdAt_idx" ON "RuntimeThreadLink"("appSessionId", "createdAt")`
+]
+
 // Reviewer results: one Review per audited turn, plus its child checks (stored in Finding table).
 // v2 (issue 12): Review no longer has summary/checks JSON columns; all checks are Finding rows.
 // v3 (issue 13): reasoning replaced by reviewerLog (captured action stream JSON array).
@@ -484,7 +579,7 @@ const COMPUTE_HOST_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "ComputeHost" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "providerId" TEXT NOT NULL,
     "displayName" TEXT NOT NULL,
-    "shape" TEXT NOT NULL DEFAULT 'direct_ssh',
+    "shape" TEXT NOT NULL DEFAULT 'unclassified',
     "sshAlias" TEXT NOT NULL,
     "sshOverrides" TEXT,
     "scratchRoot" TEXT,
@@ -619,6 +714,25 @@ const ensureProjectSchema = async (client: PrismaClient): Promise<void> => {
   await client.$executeRawUnsafe(UNREAD_TASK_SESSION_SESSION_ID_INDEX_DDL)
   await client.$executeRawUnsafe(NOTIFICATION_INBOX_ITEM_TABLE_DDL)
   for (const ddl of NOTIFICATION_INBOX_ITEM_INDEX_DDLS) {
+    await client.$executeRawUnsafe(ddl)
+  }
+  await client.$executeRawUnsafe(ROUTING_POLICY_SNAPSHOT_TABLE_DDL)
+  await client.$executeRawUnsafe(AGENT_RUN_TABLE_DDL)
+  await client.$executeRawUnsafe(MODEL_ATTEMPT_TABLE_DDL)
+  await addColumnIfMissing(
+    client,
+    'ModelAttempt',
+    'fallbackApprovalId',
+    MODEL_ATTEMPT_ADD_FALLBACK_APPROVAL_ID_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'ModelAttempt',
+    'fallbackApprovalJson',
+    MODEL_ATTEMPT_ADD_FALLBACK_APPROVAL_JSON_DDL
+  )
+  await client.$executeRawUnsafe(RUNTIME_THREAD_LINK_TABLE_DDL)
+  for (const ddl of MODEL_ROUTING_INDEX_DDLS) {
     await client.$executeRawUnsafe(ddl)
   }
   await client.$executeRawUnsafe(REVIEW_TABLE_DDL)

@@ -32,7 +32,7 @@ vi.mock('./launcher', () => launcher)
 
 import { registerCliInstallIpcHandlers, type CliCommandOwner } from './ipc'
 
-const INSTALLED = { installed: true, target: '/home/u/.local/bin/open-science', onPath: true }
+const INSTALLED = { installed: true, target: '/home/u/.local/bin/research-agent', onPath: true }
 
 beforeEach(() => {
   handlers.clear()

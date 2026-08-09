@@ -209,7 +209,7 @@ const createWebServiceController = (
       port: server.port,
       attached
     })
-    console.log(`Open Science Web: ${url}`)
+    console.log(`Research Agent Web: ${url}`)
     return { port: server.port, url }
   }
 

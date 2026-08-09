@@ -259,9 +259,9 @@ const reportPersistenceError = (error: unknown): void => {
 }
 
 const SAFE_SESSION_LOAD_ERROR =
-  'Open Science could not read saved conversation data. Retry to continue.'
+  'Research Agent could not read saved conversation data. Retry to continue.'
 const SAFE_SESSION_WRITE_ERROR =
-  'Open Science could not save the latest conversation changes. Retry before closing the app.'
+  'Research Agent could not save the latest conversation changes. Retry before closing the app.'
 
 // Hydrates the in-memory session store from the per-session files loaded by the main process.
 const loadPersistedSessions = async (

@@ -1,137 +1,147 @@
 # Security Policy
 
-Open Science is a desktop research workbench that runs an AI agent, executes code
-locally, and handles your credentials and data on your own machine. We take the
-security of that surface seriously and appreciate reports that help us keep it safe.
+Research Agent is a private desktop workbench that can read research files, call model providers,
+execute local code, and request remote computation. Treat the application, imported skills, model
+output, connectors, previews, and remote hosts as separate trust boundaries.
 
-## Supported versions
+The authoritative engineering rules are in [AGENTS.md](AGENTS.md), and the current threat analysis is
+in [docs/threat-model.md](docs/threat-model.md).
 
-This project is pre-1.0 and moving fast. Only the latest `0.x` release (and the
-`main` branch) receives security fixes.
+## Supported state
 
-| Version               | Supported |
-| --------------------- | --------- |
-| latest `0.x` / `main` | ✅        |
-| older releases        | ❌        |
+Research Agent has no public release and no public update channel. Only the current reviewed `main`
+checkout is maintained. An unpacked local app is a development artifact, not a signed/notarized
+release.
 
-The **Nightly (latest main)** pre-release tracks unreviewed commits and is provided
-as-is for testing — treat it as less hardened than tagged releases.
+| Build or source                              | Status                    |
+| -------------------------------------------- | ------------------------- |
+| Current reviewed private `main` checkout     | Maintained                |
+| Locally built artifact tied to that checkout | Development use only      |
+| Older private checkouts or artifacts         | Not maintained            |
+| AIPOCH Open Science downloads                | Separate upstream product |
+
+The in-app updater is disabled on every platform. Updates are reviewed, built, tested, and installed
+manually. Do not point Research Agent at AIPOCH's public update feed.
 
 ## Reporting a vulnerability
 
-**Do not open a public issue, discussion, or pull request for security problems.**
-A public report exposes the details to everyone before a fix ships.
+Do not disclose credentials, unpublished data, private paths, or vulnerability details in a public
+issue, discussion, pull request, screenshot, or log excerpt.
 
-Report privately via GitHub's **"Report a vulnerability"** button under this
-repository's **Security** tab (Private Vulnerability Reporting). If that is
-unavailable to you, contact a maintainer directly through the channels listed in
-the [README](README.md#get-involved) rather than filing anything public.
+Use GitHub's **Report a vulnerability** control under this private repository's **Security** tab when
+available, or contact the repository owner directly through an already trusted private channel.
+Include:
 
-Please include:
+- the exact Research Agent commit and macOS version;
+- the affected boundary, such as renderer, main process, provider, skill, connector, preview, storage,
+  Codex/OpenCode runtime, SSH/compute, packaging, or update behavior;
+- minimal reproduction steps and observed impact;
+- sanitized evidence with secrets and research identifiers removed.
 
-- affected component (desktop shell, agent runtime, notebook kernel, file
-  upload/preview, packaging/updater, or a specific config)
-- version or commit, and your OS/platform
-- reproduction steps and the impact you observed
+## Obtaining and verifying the application
 
-We aim to acknowledge reports within a few days. Please give us reasonable time to
-ship a fix before any public disclosure.
+There is currently no official Research Agent DMG, ZIP, npm package, or public download page. Build
+only from an authorized checkout of
+[mdanh-bio/research-agent](https://github.com/mdanh-bio/research-agent). An AIPOCH Open Science
+installer is not a Research Agent installer.
 
-## Verifying your download
-
-Official builds are distributed **only** through this repository's
-[GitHub Releases](https://github.com/aipoch/open-science/releases) page. Do not run
-`.dmg` / `.exe` / `.AppImage` / `.deb` files obtained from anywhere else.
-
-Every release ships a `SHA256SUMS.txt`. Verify your download before opening it:
+Before building, confirm the repository and revision:
 
 ```bash
-# macOS / Linux
-shasum -a 256 aipoch-open-science-<version>-mac-arm64.dmg
-# compare the output against the matching line in SHA256SUMS.txt
+git remote get-url origin
+git status --short --branch
+git rev-parse HEAD
 ```
 
-The checksum proves the file is intact; **build provenance** proves where it came
-from. Every tagged release attaches a signed [SLSA provenance][slsa] attestation
-tying each installer to the exact commit and CI run that produced it. Verify it with
-the [GitHub CLI](https://cli.github.com/):
+The expected private origin is `https://github.com/mdanh-bio/research-agent.git`. Review the diff,
+dependency lock, [source lock](third_party/sources.lock.yaml), and
+[third-party notices](THIRD_PARTY_NOTICES.md) before running dependency or build scripts.
+
+For an unpacked local Apple-Silicon build, verify its identity and on-disk signature after packaging:
 
 ```bash
-gh attestation verify aipoch-open-science-<version>-mac-arm64.dmg --repo aipoch/open-science
+plutil -p "dist/mac-arm64/Research Agent.app/Contents/Info.plist"
+file "dist/mac-arm64/Research Agent.app/Contents/MacOS/Research Agent"
+codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/Research Agent.app"
 ```
 
-A passing check means the binary was built by this repository's Release workflow from
-a specific commit — not repackaged by a third party. (Nightly builds are not attested.)
+The bundle identifier must be `bio.mdanh.research-agent`, the executable must be Apple-Silicon arm64,
+and a local build is expected to have only an ad-hoc signature unless a separate private signing and
+notarization process has been provisioned and verified. Ad-hoc signing provides integrity structure,
+not publisher authenticity.
 
-[slsa]: https://slsa.dev/spec/v1.0/provenance
+## Credentials and local data
 
-Builds are **not** signed with a paid Apple/Microsoft certificate yet, so your OS
-will show an "unverified developer" (macOS) or "unknown publisher" (Windows) prompt
-on first launch. That prompt is expected and is **not** evidence of tampering — but
-a checksum mismatch is. See the
-[macOS Gatekeeper note](README.md#building-from-source-macos-gatekeeper-note) for the
-one-time steps to open an unsigned build.
+Research Agent uses distinct mutable roots so it can run beside AIPOCH Open Science and Claude Science:
 
-## Credentials and local data — do not leak them
+| Runtime     | Config, settings, sessions, and app-managed credentials | Data, environments, and artifacts |
+| ----------- | ------------------------------------------------------- | --------------------------------- |
+| Packaged    | `~/.research-agent`                                     | `~/ResearchAgent`                 |
+| Development | `~/.research-agent-project`                             | `~/ResearchAgent-DEV`             |
 
-Open Science is local-first. Credentials and project data stay on your machine, and
-the agent is deliberately isolated from your ambient shell environment:
+Electron profile and updater-cache names are also Research Agent-specific. Legacy `OPEN_SCIENCE_*`
+environment overrides are ignored unless the explicit compatibility switch is enabled. Prefer
+`RESEARCH_AGENT_*` overrides and use absolute paths.
 
-- The agent runs under an app-owned config directory (`~/.open-science/claude`).
-  Inherited `ANTHROPIC_*` shell variables (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
-  `ANTHROPIC_BASE_URL`) are **dropped** before it launches, so a stray key in your
-  shell never leaks into a run.
-- The default (local) provider uses the Claude auth stored in that app config
-  directory — imported from your `~/.claude` Claude Code login, or created by an
-  in-app login.
-- API tokens for a custom gateway that you enter in the app are **encrypted at rest**
-  with the OS keychain (Electron `safeStorage`); the UI only ever shows a masked hint.
-- Project data, sessions, notebooks, and artifacts live under `~/.open-science`
-  (production) or `~/.open-science-project` (development builds).
+Provider secrets entered through the application are stored through Electron `safeStorage` when the
+operating-system credential vault is available. The application must fail closed rather than persist a
+new secret when secure storage is unavailable. Authentication material may still be sent to the exact
+provider or runtime it authenticates; local storage does not make provider traffic local.
 
-**Never paste an API key, access token, or other credential — or the contents of
-those directories — into an issue, PR, log excerpt, or screenshot.** Redact secrets
-before sharing anything for a bug report.
+Never put any of the following in Git, prompts, logs, crash reports, provenance, approval records, or
+shared screenshots:
 
-## Scope and trust boundaries
+- API keys, OAuth tokens, passwords, OTPs, SSH private keys, cookies, or authenticated URLs;
+- PHI, controlled identifiers, or sensitive sample metadata;
+- contents of the app config root, credential databases, or another tool's authentication profile.
 
-Some behavior is intentional by design and is **not** a vulnerability on its own:
+Logs remain local and may contain paths or scientific context even after secret redaction. Review and
+minimize them before sharing.
 
-- **The notebook kernel and the agent's tool calls execute code and shell commands
-  by design.** Running local code is the product's purpose. A tool-call approval gate
-  is the current control in front of higher-risk actions.
-- **Remote-compute downloads gate on approval by _initiator_, not by destination.**
-  A remote file pulled to the OS Downloads folder or published as a project artifact is
-  a **UI-initiated** action — the user clicked the button, and that click _is_ the
-  authorization, so no separate approval card is shown. Only **session-cache** downloads
-  (the agent pulling a remote file into the session workspace via its Python/tool API)
-  are agent-initiated and therefore go through the `ComputeApprovalBroker` before any
-  `scp` runs. This is intentional: prompting a user to approve the download they just
-  clicked would be noise, whereas an agent reaching for remote data is exactly what the
-  gate exists to surface. All destinations still validate the remote path (absolute, no
-  glob, no shell metacharacters) and enforce size caps regardless of initiator.
-- **Sandboxing is still on the roadmap.** Network allowlisting, a credential vault,
-  directory-scoped file access, and per-scope permission tiers are **not implemented
-  yet** (tracked as 🟡 _Security & Permissions_ in the [Roadmap](ROADMAP.md#capability-map)).
-  The absence of these is a known limitation, not a defect to report — though ideas on
-  how to build them are very welcome as Issues/Discussions.
+## Execution and approval boundaries
 
-Reports we especially want to hear about:
+- Model and tool output is untrusted input. Inspect consequential commands, file writes, provider
+  transfers, and remote actions before approval.
+- Approval is authorization, not sandboxing. Inherited OpenCode execution is approval-gated until an
+  operating-system isolation layer is verified.
+- The constrained direct Codex app-server adapter has a sandbox-backed design boundary, but it is not
+  yet connected to composer sessions. Do not infer production isolation from its unit tests.
+- Transparent routing and automatic fallback are foundations only. No production conversation is
+  automatically replayed through an alternate provider.
+- A fallback must never rewrite a request to evade provider policy, and automatic replay must stop once
+  a side effect may have begun.
+- Imported skills and connectors can execute code or transfer data. Review origin, revision, license,
+  dependencies, data-use terms, and behavior before enabling one.
 
-- ways an untrusted project file, attachment, or preview can execute code or read
-  files **outside** the intended tool-call flow (e.g. a malicious file that runs code
-  when merely opened or previewed);
-- credential or local-data exposure beyond what you explicitly provide;
-- issues in packaging, the auto-updater, or the release/download path;
-- vulnerable or compromised dependencies (including anything pulled in by
-  `postinstall`'s `prisma generate` / `electron-builder install-app-deps` step).
+## SSH and remote compute
 
-## Dependencies and supply chain
+The current build does not provide a real interactive SSH PTY and has not live-verified a Slurm job.
+Background SSH remains batch-mode behavior inherited from AIPOCH. Scheduler-classified and
+unclassified hosts fail closed before the inherited direct launcher can run a workload on a login
+node.
 
-Open Science is an Electron + npm application. If you find a vulnerability rooted in a
-third-party dependency, please report it to the upstream project as well; we will help
-triage and will bump the affected dependency.
+Every allowed remote submission requires exact, single-use approval bound to the resolved host,
+resources, working directory, script hash, and identified inputs. Password and OTP responses must
+never enter process arguments, logs, SQLite, or crash reports. No approval authorizes unrelated remote
+actions or prompt replay after side effects.
 
----
+## Research files and OneDrive
 
-_This policy will evolve as the project's sandboxing and permission model matures._
+Keep mutable databases, environments, caches, and source checkouts on the local SSD. Before reading a
+OneDrive-backed input, inspect metadata for the macOS `dataless` placeholder flag. Materialize only the
+explicitly selected files required for the task; never recursively hydrate or automatically evict a
+directory tree.
+
+Preserve raw data. Write derived work into versioned run or artifact locations, identify inputs with
+checksums when possible, and mark unavailable provenance rather than inventing it.
+
+## Dependencies and residual risk
+
+Research Agent is an Electron and npm application with native binaries and separately managed agent
+runtimes. Pinned revisions, checksums, a lockfile, and passing tests reduce supply-chain risk but do not
+eliminate it. The current production-dependency residuals and mitigations are documented in
+[docs/threat-model.md](docs/threat-model.md); do not hide them with an unrelated forced upgrade.
+
+Model output can be scientifically wrong, a user can approve a harmful action, a dependency or remote
+host can be compromised, and an ad-hoc-signed build does not prove publisher identity. These are
+residual risks, not solved properties.

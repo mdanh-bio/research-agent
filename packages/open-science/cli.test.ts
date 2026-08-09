@@ -442,7 +442,7 @@ describe('task CLI', () => {
 
     expect(client.waitForRun).toHaveBeenCalledWith('run-1', { timeoutMs: 60_000 })
     expect(warn).toHaveBeenCalledWith(
-      'Run is waiting for approval. Approve the request in Open Science Desktop or the Web UI.'
+      'Run is waiting for approval. Approve the request in Research Agent Desktop or the Web UI.'
     )
   })
 

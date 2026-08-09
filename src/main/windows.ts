@@ -112,7 +112,7 @@ const createMainWindow = (opts?: MainWindowCloseOptions): BrowserWindow => {
     height: 960,
     minWidth: 1100,
     minHeight: 720,
-    title: 'Open Science'
+    title: 'Research Agent'
   })
 
   // The renderer decides pane-vs-window, but only once it has a live, responsive listener. If main
@@ -236,7 +236,7 @@ const createMainWindow = (opts?: MainWindowCloseOptions): BrowserWindow => {
         buttons: ['Reload', 'Close window'],
         defaultId: 0,
         cancelId: 1,
-        title: 'Open Science',
+        title: 'Research Agent',
         message: 'The app window stopped responding repeatedly.',
         detail:
           'Automatic recovery has been paused. Reloading returns this window to the home screen; background work may still be running.'

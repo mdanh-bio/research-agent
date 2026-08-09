@@ -28,22 +28,22 @@ import {
 
 describe('Windows installer smoke plan', () => {
   it('selects one setup executable and rejects ambiguous artifacts', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'open-science-installer-artifacts-'))
+    const root = await mkdtemp(join(tmpdir(), 'research-agent-installer-artifacts-'))
     await writeFile(join(root, 'portable.zip'), '')
-    await writeFile(join(root, 'aipoch-open-science-0.8.0-win-x64-setup.exe'), '')
+    await writeFile(join(root, 'research-agent-0.8.0-win-x64-setup.exe'), '')
 
     await expect(findSetupInstaller(root)).resolves.toBe(
-      join(root, 'aipoch-open-science-0.8.0-win-x64-setup.exe')
+      join(root, 'research-agent-0.8.0-win-x64-setup.exe')
     )
 
     await mkdir(join(root, 'nested'))
-    await writeFile(join(root, 'aipoch-open-science-0.9.0-win-x64-setup.exe'), '')
+    await writeFile(join(root, 'research-agent-0.9.0-win-x64-setup.exe'), '')
     await expect(findSetupInstaller(root)).rejects.toThrow(/exactly one Windows setup executable/)
   })
 
   it('derives the packaged version from stable and nightly installer names', () => {
-    expect(installerVersion('aipoch-open-science-0.8.0-win-x64-setup.exe')).toBe('0.8.0')
-    expect(installerVersion('aipoch-open-science-0.8.0-nightly.abc1234-win-x64-setup.exe')).toBe(
+    expect(installerVersion('research-agent-0.8.0-win-x64-setup.exe')).toBe('0.8.0')
+    expect(installerVersion('research-agent-0.8.0-nightly.abc1234-win-x64-setup.exe')).toBe(
       '0.8.0-nightly.abc1234'
     )
   })
@@ -96,7 +96,7 @@ describe('Windows installer smoke plan', () => {
     expect(
       parsePackagedAppEndpoint(`
 [main] app starting
-Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0CrcdTs42uvLE
+Research Agent Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0CrcdTs42uvLE
 `)
     ).toEqual({
       auth: 'token=iUFHGSACwBz2k1kSJfPixHbclDywVg0CrcdTs42uvLE',
@@ -106,11 +106,11 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
   })
 
   it('accepts only a packaged bootstrap that reports an absolute Windows config root', async () => {
-    const configRoot = 'C:\\Users\\runneradmin\\.open-science'
+    const configRoot = 'C:\\Users\\runneradmin\\.research-agent'
     await expect(
       readPackagedAppConfigRoot(
         {
-          appName: 'Open Science',
+          appName: 'Research Agent',
           appVersion: '0.8.0',
           configRoot,
           platform: 'win32'
@@ -120,15 +120,15 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
     ).resolves.toBe(configRoot)
     await expect(
       readPackagedAppConfigRoot(
-        { appName: 'Open Science', appVersion: '0.8.0', platform: 'win32' },
+        { appName: 'Research Agent', appVersion: '0.8.0', platform: 'win32' },
         '0.8.0'
       )
     ).rejects.toThrow(/config root/)
   })
 
   it('authenticates whichever legacy config-root candidate the previous app actually used', async () => {
-    const runnerConfigRoot = 'C:\\Users\\runneradmin\\.open-science'
-    const isolatedConfigRoot = 'D:\\smoke\\profile\\.open-science'
+    const runnerConfigRoot = 'C:\\Users\\runneradmin\\.research-agent'
+    const isolatedConfigRoot = 'D:\\smoke\\profile\\.research-agent'
     const readToken = vi.fn(async (path: string) => {
       if (path === `${isolatedConfigRoot}\\web-token`) return 'legacy-token\n'
       throw Object.assign(new Error('missing'), { code: 'ENOENT' })
@@ -136,7 +136,7 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
 
     await expect(
       readPackagedAppConfigRoot(
-        { appName: 'Open Science', appVersion: '0.7.0', platform: 'win32' },
+        { appName: 'Research Agent', appVersion: '0.7.0', platform: 'win32' },
         '0.7.0',
         {
           auth: 'token=legacy-token',
@@ -243,8 +243,8 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
   })
 
   it('writes and verifies the upgrade sentinel in the app-reported config root', async () => {
-    const profile = await mkdtemp(join(tmpdir(), 'open-science-upgrade-profile-'))
-    const configRoot = join(profile, '.open-science')
+    const profile = await mkdtemp(join(tmpdir(), 'research-agent-upgrade-profile-'))
+    const configRoot = join(profile, '.research-agent')
     const sentinelName = 'installer-smoke-upgrade-sentinel-test'
 
     await writeUpgradeSentinel(configRoot, sentinelName)
@@ -260,8 +260,8 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
   })
 
   it('rejects an upgrade that starts the current app with a different config root', async () => {
-    const previousConfigRoot = await mkdtemp(join(tmpdir(), 'open-science-previous-config-'))
-    const currentConfigRoot = await mkdtemp(join(tmpdir(), 'open-science-current-config-'))
+    const previousConfigRoot = await mkdtemp(join(tmpdir(), 'research-agent-previous-config-'))
+    const currentConfigRoot = await mkdtemp(join(tmpdir(), 'research-agent-current-config-'))
     const guard = createUpgradeProfileGuard(true, 'installer-smoke-upgrade-sentinel-root-change')
 
     await guard.verifyCycle('previous', previousConfigRoot)
@@ -272,7 +272,7 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
   })
 
   it('removes the upgrade sentinel during cleanup after the current app preserves it', async () => {
-    const configRoot = await mkdtemp(join(tmpdir(), 'open-science-upgrade-config-'))
+    const configRoot = await mkdtemp(join(tmpdir(), 'research-agent-upgrade-config-'))
     const sentinelName = 'installer-smoke-upgrade-sentinel-cleanup'
     const guard = createUpgradeProfileGuard(true, sentinelName)
 
@@ -289,7 +289,7 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
   })
 
   it('never overwrites or removes a pre-existing upgrade sentinel collision', async () => {
-    const configRoot = await mkdtemp(join(tmpdir(), 'open-science-upgrade-collision-'))
+    const configRoot = await mkdtemp(join(tmpdir(), 'research-agent-upgrade-collision-'))
     const sentinelName = 'installer-smoke-upgrade-sentinel-collision'
     const sentinelPath = join(configRoot, sentinelName)
     const guard = createUpgradeProfileGuard(true, sentinelName)
@@ -305,7 +305,7 @@ Open Science Web: http://127.0.0.1:52378/?token=iUFHGSACwBz2k1kSJfPixHbclDywVg0C
   it('tracks multiple packaged resources for uninstall verification', () => {
     const installDirectory = join('smoke', 'app')
     expect(packagedResourcePaths(installDirectory)).toEqual([
-      join(installDirectory, 'open-science.exe'),
+      join(installDirectory, 'research-agent.exe'),
       join(installDirectory, 'resources', 'app.asar'),
       join(installDirectory, 'resources', 'micromamba.exe'),
       join(

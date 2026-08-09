@@ -9,7 +9,7 @@ import type { CliLauncherStatus } from '../../shared/cli'
 export type CliLauncherEnv = {
   platform: NodeJS.Platform
   // The app's own executable. Run with ELECTRON_RUN_AS_NODE it behaves as Node; for a packaged build
-  // it is also the app the CLI should spawn, so the shim pins OPEN_SCIENCE_APP_PATH to it.
+  // it is also the app the CLI should spawn, so the shim pins RESEARCH_AGENT_APP_PATH to it.
   appExecPath: string
   // Absolute path to the bundled CLI entry (resources/cli/index.mjs when packaged).
   cliEntryPath: string
@@ -47,22 +47,22 @@ const isOnPath = (binDir: string, pathVar: string, platform: NodeJS.Platform): b
 // and need backslash handling.
 const posixShim = (env: CliLauncherEnv): string => {
   const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
-  const appPathLine = env.packaged ? `OPEN_SCIENCE_APP_PATH=${quote(env.appExecPath)} ` : ''
+  const appPathLine = env.packaged ? `RESEARCH_AGENT_APP_PATH=${quote(env.appExecPath)} ` : ''
   return [
     '#!/bin/sh',
-    '# Open Science command-line launcher. Managed by the app (Settings -> General -> Command line',
+    '# Research Agent command-line launcher. Managed by the app (Settings -> General -> Command line',
     "# tool); edits will be overwritten on reinstall. Runs the app's Electron in Node mode.",
     `${appPathLine}ELECTRON_RUN_AS_NODE=1 exec ${quote(env.appExecPath)} ${quote(env.cliEntryPath)} "$@"`,
     ''
   ].join('\n')
 }
 
-// Windows: an open-science.cmd in a per-user bin dir. %* forwards all arguments.
+// Windows: a research-agent.cmd in a per-user bin dir. %* forwards all arguments.
 const windowsShim = (env: CliLauncherEnv): string => {
-  const appPathLine = env.packaged ? `set "OPEN_SCIENCE_APP_PATH=${env.appExecPath}"\r\n` : ''
+  const appPathLine = env.packaged ? `set "RESEARCH_AGENT_APP_PATH=${env.appExecPath}"\r\n` : ''
   return [
     '@echo off',
-    'rem Open Science command-line launcher. Managed by the app; edits are overwritten on reinstall.',
+    'rem Research Agent command-line launcher. Managed by the app; edits are overwritten on reinstall.',
     'set ELECTRON_RUN_AS_NODE=1',
     `${appPathLine}"${env.appExecPath}" "${env.cliEntryPath}" %*`,
     ''
@@ -75,7 +75,7 @@ export const planCliLauncher = (env: CliLauncherEnv): CliLauncherPlan => {
     const binDir = join(env.userDataDir, 'bin')
     return {
       binDir,
-      target: join(binDir, 'open-science.cmd'),
+      target: join(binDir, 'research-agent.cmd'),
       shim: windowsShim(env),
       onPath: isOnPath(binDir, env.pathVar, env.platform)
     }
@@ -83,7 +83,7 @@ export const planCliLauncher = (env: CliLauncherEnv): CliLauncherPlan => {
   const binDir = join(env.homeDir, '.local', 'bin')
   return {
     binDir,
-    target: join(binDir, 'open-science'),
+    target: join(binDir, 'research-agent'),
     shim: posixShim(env),
     mode: 0o755,
     onPath: isOnPath(binDir, env.pathVar, env.platform)
@@ -127,7 +127,7 @@ export const buildWindowsPathCommand = (binDir: string): { command: string; args
 }
 
 // Writes the launcher shim and, on Windows, ensures its dir is on the user PATH. Returns the resulting
-// status (installed + whether `open-science` is callable, with a hint when a manual step remains).
+// status (installed + whether `research-agent` is callable, with a hint when a manual step remains).
 export const installCliLauncher = async (
   env: CliLauncherEnv,
   runCommand: CommandRunner = defaultRunCommand
@@ -144,10 +144,10 @@ export const installCliLauncher = async (
       const { command, args } = buildWindowsPathCommand(plan.binDir)
       onPath = runCommand(command, args)
       pathHint = onPath
-        ? 'Added to your PATH — open a new terminal to use "open-science".'
-        : `Add ${plan.binDir} to your PATH to use "open-science".`
+        ? 'Added to your PATH — open a new terminal to use "research-agent".'
+        : `Add ${plan.binDir} to your PATH to use "research-agent".`
     } else {
-      pathHint = `Add ${plan.binDir} to your PATH (e.g. in your shell profile) to use "open-science".`
+      pathHint = `Add ${plan.binDir} to your PATH (e.g. in your shell profile) to use "research-agent".`
     }
   }
   return { installed: true, target: plan.target, onPath, pathHint }
@@ -168,7 +168,7 @@ export const getCliLauncherStatus = async (env: CliLauncherEnv): Promise<CliLaun
     onPath: plan.onPath,
     pathHint:
       installed && !plan.onPath
-        ? `Add ${plan.binDir} to your PATH to use "open-science".`
+        ? `Add ${plan.binDir} to your PATH to use "research-agent".`
         : undefined
   }
 }

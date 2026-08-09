@@ -175,7 +175,7 @@ describe('headless startup', () => {
       { noSandbox: false }
     )
 
-    expect(message).toContain('open-science start --no-sandbox')
+    expect(message).toContain('research-agent start --no-sandbox')
     expect(message).toContain('reduces security')
     expect(message).toContain('AppImage')
   })
@@ -185,7 +185,7 @@ describe('stopCommand', () => {
   it('reports not running and does nothing when no live daemon is found', async () => {
     const deps = makeDeps({ findServiceState: vi.fn().mockResolvedValue(undefined) })
     await stopCommand({}, deps)
-    expect(deps.log).toHaveBeenCalledWith('Open Science is not running.')
+    expect(deps.log).toHaveBeenCalledWith('Research Agent is not running.')
     expect(deps.fetch).not.toHaveBeenCalled()
     expect(deps.removeState).not.toHaveBeenCalled()
   })
@@ -202,7 +202,7 @@ describe('stopCommand', () => {
     )
     expect(deps.forceKill).not.toHaveBeenCalled()
     expect(deps.removeState).toHaveBeenCalledWith(RUNNING_STATE.configRoot)
-    expect(deps.log).toHaveBeenCalledWith('Open Science stopped.')
+    expect(deps.log).toHaveBeenCalledWith('Research Agent stopped.')
   })
 
   it('does NOT remove state or print stopped when the process survives the force-kill', async () => {
@@ -212,7 +212,7 @@ describe('stopCommand', () => {
 
     expect(deps.forceKill).toHaveBeenCalledWith(RUNNING_STATE.pid)
     expect(deps.removeState).not.toHaveBeenCalled()
-    expect(deps.log).not.toHaveBeenCalledWith('Open Science stopped.')
+    expect(deps.log).not.toHaveBeenCalledWith('Research Agent stopped.')
   })
 
   it('still force-kills when the graceful shutdown request fails', async () => {
@@ -248,7 +248,7 @@ describe('stopCommand', () => {
     expect(deps.forceKill).not.toHaveBeenCalled()
     expect(deps.removeState).toHaveBeenCalledWith(RUNNING_STATE.configRoot)
     expect(deps.log).toHaveBeenCalledWith(
-      'Open Science web service stopped; the app is still running.'
+      'Research Agent web service stopped; the app is still running.'
     )
   })
 
@@ -279,7 +279,7 @@ describe('statusCommand', () => {
   it('prints not running and sets a non-zero exit code when the daemon is down', async () => {
     const deps = makeDeps({ findServiceState: vi.fn().mockResolvedValue(undefined) })
     await statusCommand({}, deps)
-    expect(deps.log).toHaveBeenCalledWith('Open Science is not running.')
+    expect(deps.log).toHaveBeenCalledWith('Research Agent is not running.')
     expect(process.exitCode).toBe(1)
   })
 
@@ -301,6 +301,6 @@ describe('urlCommand', () => {
 
   it('throws when the daemon is not running', async () => {
     const deps = makeDeps({ isAlive: vi.fn().mockReturnValue(false) })
-    await expect(urlCommand({}, deps)).rejects.toThrow('Open Science is not running.')
+    await expect(urlCommand({}, deps)).rejects.toThrow('Research Agent is not running.')
   })
 })

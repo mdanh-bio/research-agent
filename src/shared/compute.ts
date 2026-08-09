@@ -5,9 +5,13 @@
 // normalized to epoch milliseconds at the repository boundary so the renderer treats them like other
 // persisted timestamps. No credentials are ever stored — only an ssh alias and optional overrides.
 
+import type { ComputeDispatchApprovalSummary, ComputeJobApprovalSummary } from './compute-scheduler'
+
+export type { ComputeJobApprovalSummary } from './compute-scheduler'
+
 // Host topology, inferred by probe in a later issue. Persisted so downstream issues can branch on it;
 // Phase 1 never reads it for behavior.
-export type ComputeHostShape = 'direct_ssh' | 'scheduler_cluster' | 'bridge_runner'
+export type ComputeHostShape = 'unclassified' | 'direct_ssh' | 'scheduler_cluster' | 'bridge_runner'
 
 // Optional connection overrides layered on top of ~/.ssh/config (never credentials/keys). Stored as a
 // JSON string in the DB column; parsed to this shape at the repository boundary.
@@ -75,8 +79,24 @@ export type DeleteComputeHostRequest = {
 // Matches the UI character counter and the compute_details cap (32 KiB) in later issues.
 export const DETAILS_DOC_MAX_LENGTH = 32768
 
+const SAFE_SSH_ALIAS = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const MAX_SSH_ALIAS_LENGTH = 255
+
+// SSH aliases cross an executable argv boundary. Keep them to the same conservative identifier
+// grammar used by ComputeJobSpec so a leading dash, whitespace, colon, wildcard, or control
+// character can never be interpreted as an OpenSSH option or destination syntax.
+export const normalizeComputeSshAlias = (value: string): string => {
+  const alias = value.trim()
+  if (!alias || alias.length > MAX_SSH_ALIAS_LENGTH || !SAFE_SSH_ALIAS.test(alias)) {
+    throw new Error(
+      'SSH host alias must start with a letter or digit and contain only letters, digits, dot, underscore, or hyphen.'
+    )
+  }
+  return alias
+}
+
 // The single source of truth for the provider_id convention: "ssh:<alias>".
-export const computeProviderId = (alias: string): string => `ssh:${alias.trim()}`
+export const computeProviderId = (alias: string): string => `ssh:${normalizeComputeSshAlias(alias)}`
 
 // Result returned by call_command / computeCall RPC. exit_code is null when the process was killed
 // (e.g. timeout). truncated=true means at least one of stdout/stderr was capped at 64 KB.
@@ -91,7 +111,15 @@ export type ExecResult = {
 // retry_after_user_action=true means the system will NOT retry automatically — the user must fix
 // an external condition first (e.g. SSH connectivity).
 export type ComputeCallError = {
-  error_code: 'host_unreachable' | 'timeout' | 'approval_denied' | 'queue_full'
+  error_code:
+    | 'host_unreachable'
+    | 'host_unclassified'
+    | 'timeout'
+    | 'approval_denied'
+    | 'approval_stale'
+    | 'input_identity_unavailable'
+    | 'queue_full'
+    | 'scheduler_not_ready'
   message: string
   retry_after_user_action: boolean
 }
@@ -100,6 +128,22 @@ export type ComputeCallError = {
 // presented and persisted as a Session grant; Agent ACP adapters still receive only allow-once.
 export type ComputeApprovalScope = 'once' | 'conversation' | 'project' | 'global'
 export type ComputeApprovalDecision = ComputeApprovalScope | 'deny'
+
+const COMPUTE_APPROVAL_DECISIONS: readonly ComputeApprovalDecision[] = [
+  'once',
+  'conversation',
+  'project',
+  'global',
+  'deny'
+]
+
+export const isComputeApprovalDecision = (value: unknown): value is ComputeApprovalDecision =>
+  typeof value === 'string' && COMPUTE_APPROVAL_DECISIONS.includes(value as ComputeApprovalDecision)
+
+// Approval responses are security-sensitive renderer input. Unknown/missing values must deny rather
+// than inheriting JavaScript truthiness or being treated as an allow scope.
+export const normalizeComputeApprovalDecision = (value: unknown): ComputeApprovalDecision =>
+  isComputeApprovalDecision(value) ? value : 'deny'
 
 // Approval request broadcast from main to the renderer for a compute:call_command invocation.
 // provider_name is the human-readable display name; shape is the host topology string.
@@ -122,6 +166,15 @@ export type ComputeApprovalRequest = {
   resources?: string
   timeout_seconds?: number
   remote_workdir?: string
+  // Structured, exact per-job fields for the single-use scheduler approval card.
+  job_summary?: ComputeJobApprovalSummary
+  // Immutable local-input and resolved SSH identities authorized by this exact approval.
+  dispatch_binding?: ComputeDispatchApprovalSummary
+  // Concrete production dispatch path authorized by this card.
+  execution_mode?: 'direct_ssh' | 'slurm'
+  // Authoritative main-process signal: this approval can authorize only this one operation and
+  // must never create or consume a remembered Session/Project/Global grant.
+  single_use?: boolean
 }
 
 // The job status values for the Phase 3a state machine. 'queued' is reserved for Phase 3c.

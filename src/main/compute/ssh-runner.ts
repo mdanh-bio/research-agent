@@ -1,10 +1,13 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
-import { homedir, platform } from 'node:os'
+import { createHash } from 'node:crypto'
+import { chmodSync, existsSync, lstatSync, mkdirSync } from 'node:fs'
+import { platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { SshOverrides } from '../../shared/compute'
+import { normalizeComputeSshAlias } from '../../shared/compute'
+import { buildControlMasterConfig } from './interactive-ssh-broker'
 
 // Maximum bytes captured per stream before we truncate. Caller can pass a smaller cap.
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024
@@ -28,7 +31,37 @@ export type ResolvedSshTarget = {
   host: string
   // Connection flags resolved from `ssh -G <alias>` plus overrides: -p, -l/-o User, -i, control args.
   extraArgs: string[]
+  // Canonical, secret-free identity used to bind an approval to the effective endpoint and config.
+  connectionIdentity?: ResolvedSshConnectionIdentity
 }
+
+export type ResolvedSshConnectionIdentity = {
+  configResolved: boolean
+  alias: string
+  hostname: string
+  user?: string
+  port: number
+  identityFile?: string
+  proxyJump?: string
+  hostKeyAlias?: string
+  proxyCommandHash?: string
+  effectiveConfigHash: string
+}
+
+const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
+
+const canonicalConfig = (config: Record<string, string>): Array<[string, string]> =>
+  Object.entries(config).sort(([left], [right]) => left.localeCompare(right))
+
+export const resolvedSshTargetHash = (target: ResolvedSshTarget): string =>
+  sha256(
+    JSON.stringify({
+      sshBinary: target.sshBinary,
+      host: target.host,
+      extraArgs: target.extraArgs,
+      connectionIdentity: target.connectionIdentity
+    })
+  )
 
 // The injectable SSH execution interface. The real implementation spawns system ssh; tests substitute
 // a fake. All SSH logic stays in the main process — callers in the renderer are never exposed to it.
@@ -52,19 +85,29 @@ export interface SshRunner {
 
 // Builds the ControlMaster args used on mac/linux to reuse a single SSH connection across the probe
 // bundle. Windows does not support ControlMaster so this returns an empty array there.
-export const controlMasterArgs = (alias: string): string[] => {
+export const controlMasterArgs = (alias: string, connectionKey?: string): string[] => {
   if (platform() === 'win32') return []
-  // Use a per-alias socket under ~/.ssh/ctrl/ so multiple hosts don't share a socket. ssh does not
-  // create the ControlPath parent directory itself, so ensure it exists (mode 0700 like ~/.ssh) —
-  // otherwise the control socket bind fails with "unix_listener: cannot bind ... No such file".
-  const ctrlDir = join(homedir(), '.ssh', 'ctrl')
+  // Use an app-scoped, hashed per-alias socket with an eight-hour lifetime. ssh does not create the
+  // ControlPath parent directory itself, so ensure it exists (mode 0700 like ~/.ssh).
+  const config = buildControlMasterConfig(alias, { connectionKey })
   try {
-    mkdirSync(ctrlDir, { recursive: true, mode: 0o700 })
+    mkdirSync(config.controlDirectory, { recursive: true, mode: 0o700 })
+    const metadata = lstatSync(config.controlDirectory)
+    const currentUid = process.getuid?.()
+    if (
+      !metadata.isDirectory() ||
+      metadata.isSymbolicLink() ||
+      (currentUid !== undefined && metadata.uid !== currentUid)
+    ) {
+      return []
+    }
+    chmodSync(config.controlDirectory, 0o700)
   } catch {
-    // Best-effort: if we can't create it, ssh will surface the bind error as before.
+    // Reuse is optional. Fail closed to an ordinary SSH connection if the socket directory cannot
+    // be created, verified as user-owned/non-symlink, or restricted to mode 0700.
+    return []
   }
-  const socketPath = join(ctrlDir, `%r@%h:%p.${alias}`)
-  return ['-o', `ControlMaster=auto`, '-o', `ControlPath=${socketPath}`, '-o', `ControlPersist=60`]
+  return config.args
 }
 
 // Locate ssh.exe on Windows. Tries System32\OpenSSH first (built-in since Win10 1803), then Git for
@@ -87,7 +130,8 @@ const findWindowsSsh = (): string => {
 // Returns the path to the ssh binary appropriate for the current platform.
 export const resolveSshBinary = (): string => {
   if (platform() === 'win32') return findWindowsSsh()
-  return 'ssh' // On mac/linux ssh is on PATH.
+  if (platform() === 'darwin') return '/usr/bin/ssh'
+  return 'ssh'
 }
 
 // Parses the output of `ssh -G <alias>` (one "key value" line per setting) into a plain object.
@@ -106,20 +150,16 @@ const parseSshG = (output: string): Record<string, string> => {
 }
 
 // Reads the effective ~/.ssh/config for `alias` by running `ssh -G <alias>`. Returns a lowercased
-// key→value map. Returns an empty map on failure (e.g. no ~/.ssh/config) so the caller can still
-// build a usable connection from overrides and defaults. Extracted so resolveSshTarget can inject a
-// fake in tests without spawning ssh.
+// key→value map and rejects on process failure so approval-sensitive callers can distinguish a
+// resolved bare-host configuration from a failed resolution. Extracted so resolveSshTarget can
+// inject a fake in tests without spawning ssh.
 const readEffectiveConfig = async (
   alias: string,
   sshBinary: string
 ): Promise<Record<string, string>> => {
   const execFileAsync = promisify(execFile)
-  try {
-    const { stdout } = await execFileAsync(sshBinary, ['-G', alias], { timeout: 5000 })
-    return parseSshG(stdout)
-  } catch {
-    return {}
-  }
+  const { stdout } = await execFileAsync(sshBinary, ['-G', '--', alias], { timeout: 5000 })
+  return parseSshG(stdout)
 }
 
 // Resolves a ResolvedSshTarget for the given alias + optional overrides. Runs `ssh -G <alias>` to
@@ -143,15 +183,18 @@ export const resolveSshTarget = async (
     sshBinary: string
   ) => Promise<Record<string, string>> = readEffectiveConfig
 ): Promise<ResolvedSshTarget> => {
+  const normalizedAlias = normalizeComputeSshAlias(alias)
   const sshBinary = resolveSshBinary()
 
   // Read the effective connection config from ~/.ssh/config for this alias. Wrapped in try/catch so
-  // a failing readConfig (e.g. ssh -G process error) never breaks connection resolution — the
-  // caller falls back to the bare alias + defaults.
+  // a failing readConfig (e.g. ssh -G process error) never breaks basic connection resolution. The
+  // returned identity is marked unresolved, and approval-sensitive job dispatch rejects it.
   let sshGConfig: Record<string, string> = {}
+  let configResolved = true
   try {
-    sshGConfig = await readConfig(alias, sshBinary)
+    sshGConfig = await readConfig(normalizedAlias, sshBinary)
   } catch {
+    configResolved = false
     // readConfig failed — proceed with overrides and defaults only.
   }
 
@@ -162,7 +205,7 @@ export const resolveSshTarget = async (
   // when no override is set — but harmless (values match) and kept for clarity. IdentityFile, by
   // contrast, is override-only because ssh picks it up from config via the alias.
   const resolvedUser = overrides?.user?.trim() ?? sshGConfig['user']
-  if (resolvedUser && resolvedUser !== alias) {
+  if (resolvedUser && resolvedUser !== normalizedAlias) {
     extraArgs.push('-o', `User=${resolvedUser}`)
   }
 
@@ -187,15 +230,52 @@ export const resolveSshTarget = async (
   // ConnectTimeout: override a potentially large value from config so probes fail fast.
   extraArgs.push('-o', `ConnectTimeout=${DEFAULT_CONNECT_TIMEOUT_SECS}`)
 
-  // ControlMaster on mac/linux for connection reuse across the probe bundle.
-  extraArgs.push(...controlMasterArgs(alias))
+  // ControlMaster on mac/linux for connection reuse across the probe bundle. Bind the socket to the
+  // resolved endpoint and routing options so a host edit cannot reuse an eight-hour master created
+  // for an earlier user/port/key/proxy configuration.
+  const connectionKey = JSON.stringify([
+    sshGConfig['hostname'] ?? normalizedAlias,
+    resolvedUser ?? '',
+    overrides?.port ?? sshGConfig['port'] ?? '22',
+    overrides?.identityFile?.trim() ?? sshGConfig['identityfile'] ?? '',
+    sshGConfig['proxyjump'] ?? '',
+    sshGConfig['proxycommand'] ?? '',
+    sshGConfig['hostkeyalias'] ?? ''
+  ])
+  extraArgs.push(...controlMasterArgs(normalizedAlias, connectionKey))
 
   // Pass the alias — NOT the resolved hostname — as the connection target (see the function
-  // docstring above). ControlMaster's ControlPath uses %h, which ssh expands to the real HostName,
-  // so the mux socket is identical whether the alias or the IP is the target.
-  const host = alias
+  // docstring above). The app-scoped ControlPath is derived from this stable alias.
+  const host = normalizedAlias
+  const normalizedOption = (value: string | undefined): string | undefined =>
+    value && value.toLowerCase() !== 'none' ? value : undefined
+  const port = Number.parseInt(String(overrides?.port ?? sshGConfig['port'] ?? '22'), 10)
+  const proxyCommand = normalizedOption(sshGConfig['proxycommand'])
+  const connectionIdentity: ResolvedSshConnectionIdentity = {
+    configResolved,
+    alias: normalizedAlias,
+    hostname: sshGConfig['hostname'] ?? normalizedAlias,
+    user: resolvedUser || undefined,
+    port: Number.isInteger(port) && port > 0 && port <= 65_535 ? port : 22,
+    identityFile: overrides?.identityFile?.trim() || normalizedOption(sshGConfig['identityfile']),
+    proxyJump: normalizedOption(sshGConfig['proxyjump']),
+    hostKeyAlias: normalizedOption(sshGConfig['hostkeyalias']),
+    proxyCommandHash: proxyCommand ? sha256(proxyCommand) : undefined,
+    effectiveConfigHash: sha256(
+      JSON.stringify({
+        sshBinary,
+        configResolved,
+        config: canonicalConfig(sshGConfig),
+        overrides: {
+          user: overrides?.user?.trim() || undefined,
+          port: overrides?.port,
+          identityFile: overrides?.identityFile?.trim() || undefined
+        }
+      })
+    )
+  }
 
-  return { sshBinary, host, extraArgs }
+  return { sshBinary, host, extraArgs, connectionIdentity }
 }
 
 // Accumulates stream chunks up to maxBytes, capping stored content and recording whether any bytes
@@ -253,6 +333,7 @@ export class SystemSshRunner implements SshRunner {
   }> {
     const maxBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
     const { loginShell = false } = opts
+    const host = normalizeComputeSshAlias(target.host)
 
     // When loginShell is requested wrap the command in `bash -lc '...'` so login profiles run and a
     // readable ~/.bashrc is attempted before the user command. A non-interactive bash does not read
@@ -268,7 +349,7 @@ export class SystemSshRunner implements SshRunner {
     const loginCommand = `if [ -r ~/.bashrc ]; then . ~/.bashrc || exit $?; fi; ${remoteCommand}`
     const finalCommand = loginShell ? `bash -lc ${shellSingleQuote(loginCommand)}` : remoteCommand
 
-    const args = [...target.extraArgs, target.host, finalCommand]
+    const args = [...target.extraArgs, '--', host, finalCommand]
 
     return new Promise((resolve) => {
       const stdoutBuf = new CappedOutput(maxBytes)

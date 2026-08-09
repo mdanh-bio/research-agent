@@ -181,8 +181,8 @@ const nativeFallback = async (
           buttons: ['Cancel', 'Quit'],
           defaultId: 0,
           cancelId: 0,
-          title: 'Open Science',
-          message: 'Quit Open Science?',
+          title: 'Research Agent',
+          message: 'Quit Research Agent?',
           detail: 'Work is still running and will be interrupted if you quit.'
         }
       : {
@@ -190,7 +190,7 @@ const nativeFallback = async (
           buttons: ['Minimize to tray', 'Quit'],
           defaultId: 0,
           cancelId: 0,
-          title: 'Open Science',
+          title: 'Research Agent',
           message: 'Minimize to tray or quit?',
           detail: 'Background work may still be running.',
           checkboxLabel: "Don't ask again",

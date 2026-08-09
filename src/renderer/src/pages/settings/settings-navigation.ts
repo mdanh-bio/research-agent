@@ -2,6 +2,7 @@ import type { EnvironmentCheckId, EnvironmentCheckItem } from '../../../../share
 
 export type SettingsPanelId =
   | 'model'
+  | 'routing'
   | 'agent'
   | 'skills'
   | 'connectors'

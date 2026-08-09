@@ -19,6 +19,7 @@ import {
   installComputeIpcHandlers,
   toJobSummary
 } from './ipc'
+import { readComputeApprovalResponse } from './compute-approval-response'
 import type { ComputeJobRepository } from './job-repository'
 import type { ComputeHostRepository } from './repository'
 import { EnabledComputeHostsRegistry } from './enabled-hosts-registry'
@@ -68,6 +69,28 @@ const sampleHost = (overrides: Partial<ComputeHost> = {}): ComputeHost => ({
   createdAt: 1,
   updatedAt: 1,
   ...overrides
+})
+
+describe('readComputeApprovalResponse', () => {
+  it('accepts only known decisions and defaults every unknown value to deny', () => {
+    expect(readComputeApprovalResponse({ id: 'approval-1', decision: 'once' })).toEqual({
+      id: 'approval-1',
+      decision: 'once'
+    })
+    expect(readComputeApprovalResponse({ id: 'approval-1', decision: 'allow' })).toEqual({
+      id: 'approval-1',
+      decision: 'deny'
+    })
+    expect(readComputeApprovalResponse({ id: 'approval-1' })).toEqual({
+      id: 'approval-1',
+      decision: 'deny'
+    })
+  })
+
+  it('rejects responses without a usable pending-request id', () => {
+    expect(() => readComputeApprovalResponse(null)).toThrow()
+    expect(() => readComputeApprovalResponse({ id: '', decision: 'once' })).toThrow()
+  })
 })
 
 // A minimal repository double exposing only the methods the handlers call.

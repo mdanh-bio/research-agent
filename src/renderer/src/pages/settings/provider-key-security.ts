@@ -9,12 +9,12 @@ const getApiKeySecurityCopy = (encryptionAvailable: boolean): ApiKeySecurityCopy
     ? {
         title: 'Your key stays private.',
         description:
-          'It is stored only on this device and never uploaded to Open Science. Your OS secure storage protects it, and it is sent only to the selected provider when you make a request.'
+          'Research Agent stores it only on this device in OS secure storage and sends it only to the selected provider when you make a request.'
       }
     : {
         title: 'Secure storage is unavailable.',
         description:
-          'Open Science will not save API keys until the operating-system credential vault is available. Unlock or authorize the system keychain, then retry.'
+          'Research Agent will not save API keys until the operating-system credential vault is available. Unlock or authorize the system keychain, then retry.'
       }
 
 export { getApiKeySecurityCopy }

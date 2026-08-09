@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { join, resolve } from 'node:path'
 
 import {
+  dataFolderName,
   dataRootForPicked,
   isPathInsideOrEqual,
   resolveConfigRoot,
@@ -187,7 +188,7 @@ export const classifyDataRoot = async (
     return {
       kind: 'invalid',
       error:
-        "Open Science can't write to this folder. Make sure you have permission to it — on macOS, grant access when prompted, or pick a folder inside your home directory."
+        "Research Agent can't write to this folder. Make sure you have permission to it — on macOS, grant access when prompted, or pick a folder inside your home directory."
     }
   }
 
@@ -241,7 +242,7 @@ export const classifyDataRoot = async (
 
   return {
     kind: 'invalid',
-    error: 'A different folder named OpenScience already exists here. Choose another location.'
+    error: `A different folder named ${dataFolderName()} already exists here. Choose another location.`
   }
 }
 
@@ -259,7 +260,7 @@ export const validateNewDataRoot = async (
   if (result.kind === 'adopt') {
     return {
       ok: false,
-      error: 'The selected folder already contains Open Science data. Pick an empty folder.'
+      error: 'The selected folder already contains Research Agent data. Pick an empty folder.'
     }
   }
 

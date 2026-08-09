@@ -180,7 +180,7 @@ describe('createAppTray', () => {
     })
 
     expect(tray).toBeDefined()
-    expect(lastTray?.tooltip).toBe('Open Science')
+    expect(lastTray?.tooltip).toBe('Research Agent')
     expect(lastTray?.contextMenu?.template).toBe(lastTemplate)
     expect(lastTemplate?.filter((item) => item.label).map((item) => item.label)).toEqual([
       'Show',
@@ -224,7 +224,7 @@ describe('createAppTray', () => {
       onCopyWebUrl
     })
 
-    expect(lastTray?.tooltip).toBe('Open Science (Web)')
+    expect(lastTray?.tooltip).toBe('Research Agent (Web)')
     expect(lastTemplate?.filter((item) => item.label).map((item) => item.label)).toEqual([
       'Open Web UI',
       'Copy URL',

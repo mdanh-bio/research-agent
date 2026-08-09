@@ -1,8 +1,18 @@
-# Open Science Roadmap
+# AIPOCH Open Science Roadmap — inherited baseline reference
 
-> Open Science is building an open, model-agnostic, self-hostable implementation of the "AI research workbench" category — the same category of tool that closed, single-vendor products in this space have demonstrated, decomposed into open, independently replaceable layers. This document is the living map of where that project is headed and how far it has gotten. For the full functional specification behind each item here, see [`docs/PRD.md`](docs/PRD.md).
+> This file preserves the roadmap shipped with the AIPOCH Open Science v0.12.1 baseline. All
+> capability labels, release statements, community channels, `open-science` CLI references, and
+> auto-update claims below describe that upstream project at the pinned baseline. They are not Research
+> Agent feature-status claims.
+>
+> Research Agent is a private, Apple-Silicon-first source build. It uses the `research-agent` CLI, has
+> no public release channel, and disables the in-app updater in favor of reviewed manual updates. Use
+> [`knowledge/current-state.md`](knowledge/current-state.md) for verified behavior and
+> [`docs/roadmap.md`](docs/roadmap.md) for the active Research Agent roadmap.
 
-Status legend: ✅ core target is shipping · 🟡 materially incomplete · ⬜ not started. A green capability can continue to improve; it means the target named in that row is available today, not that every longer-term extension is finished.
+The upstream status legend is: ✅ core target was shipping · 🟡 materially incomplete · ⬜ not
+started. A green capability in this preserved snapshot is evidence about the inherited AIPOCH baseline,
+not proof that a Research Agent extension is active.
 
 ---
 
@@ -13,7 +23,7 @@ Status legend: ✅ core target is shipping · 🟡 materially incomplete · ⬜ 
 - [Capability Map](#capability-map)
 - [Delivery Phases](#delivery-phases)
 - [Boundaries & Non-Goals](#boundaries--non-goals)
-- [How to Contribute to This Roadmap](#how-to-contribute-to-this-roadmap)
+- [How to use this baseline](#how-to-use-this-baseline)
 
 ---
 
@@ -125,7 +135,7 @@ flowchart LR
 - **Phase 4 — Compute & Trust.** Remote compute as a first-class primitive (SSH/Slurm/cloud GPU) with async job notifications and sub-agent fan-out; the full security stack (scoped permissions, network allowlisting, directory-level file sandboxing, and managed credential lifecycle). Several of this phase's primitives have already begun landing in early form during Phase 1: remote SSH compute hosts as notebook execution targets and desktop notifications on task completion/failure (so what remains here on the compute side is Slurm/cloud-GPU submission and sub-agent fan-out); an opt-in reviewer/verifier that audits a turn against its own record with a bounded fix loop; a pluggable agent-framework backend (Claude Code, OpenCode, and Codex) so the runtime isn't locked to one agent implementation; OS-backed encrypted secret storage; and scoped permission management (global, project, and session-scoped allow grants with filtering, family revoke, and Undo) landing in v0.9.0 as the first concrete trust-stack slice. Deepening these — richer verification rubrics, additional framework backends, and the remaining security stack (agent network sandboxing, user-configurable directory grants, and centralized credential inventory/rotation) — continues here.
 - **Phase 5 — Commons & Interaction.** A public skills marketplace, an optional hosted offering, and institutional governance/audit features; spatially-anchored annotations; editable scientific viewers; automatic skill-aware context discovery and injection.
 
-Phase kickoffs and priority calls get announced on **[X](https://x.com/aipoch_ai)** first and debated in **[Discord](https://discord.gg/85dKfuGM9)** before they land here — this roadmap is a living hypothesis, not a fixed spec, and each phase becomes tracked issues/RFCs as contributors join.
+In the upstream AIPOCH project, phase kickoffs and priority calls were announced on **[X](https://x.com/aipoch_ai)** and debated in **[Discord](https://discord.gg/85dKfuGM9)**. Those are upstream community channels, not private Research Agent support or release channels.
 
 ## Boundaries & Non-Goals
 
@@ -137,10 +147,14 @@ Some limits are deliberate, not oversights, and we'd rather say so than let the 
 - **Does not replace domain-expert judgment.** Statistical validity, batch-effect analysis, and data-leakage risk are still calls a human researcher has to make. Open Science lowers the cost of _executing_ and _recording_ research, not the cost of _judging_ it.
 - **Not a proxy or reskin of any closed-source product.** Open Science shares no code with any single vendor's client and is not designed to route around a vendor's billing or terms of service — it's an independent, from-scratch implementation of the same category of tool, built to be self-hosted and inspected from the ground up.
 
-## How to Contribute to This Roadmap
+## How to use this baseline
 
-Pick anything marked ⬜ or 🟡 above, open an [Issue](https://github.com/aipoch/open-science/issues) describing your approach, and start a [Discussion](https://github.com/aipoch/open-science/discussions) if you want to debate the design before writing code. See [Get Involved](README.md#get-involved) in the README for the full picture.
+Use the upstream [AIPOCH issue tracker](https://github.com/aipoch/open-science/issues) and
+[Discussions](https://github.com/aipoch/open-science/discussions) only for upstream AIPOCH work. For
+Research Agent changes, follow [AGENTS.md](AGENTS.md), the active
+[Research Agent roadmap](docs/roadmap.md), and the private-repository workflow in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-_This roadmap reflects the current codebase and design docs, and is updated as the project evolves._
+_Preserved from the AIPOCH v0.12.1 baseline; it is not the Research Agent current-state ledger._

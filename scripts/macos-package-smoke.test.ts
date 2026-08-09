@@ -22,10 +22,10 @@ afterEach(async () => {
 
 describe('macOS package smoke', () => {
   it('selects one DMG and ZIP and derives their shared version', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'open-science-macos-artifacts-'))
+    const root = await mkdtemp(join(tmpdir(), 'research-agent-macos-artifacts-'))
     roots.push(root)
-    const dmg = join(root, 'aipoch-open-science-0.12.0-mac-arm64.dmg')
-    const zip = join(root, 'aipoch-open-science-0.12.0-mac-arm64.zip')
+    const dmg = join(root, 'research-agent-0.12.0-mac-arm64.dmg')
+    const zip = join(root, 'research-agent-0.12.0-mac-arm64.zip')
     await Promise.all([
       writeFile(dmg, ''),
       writeFile(zip, ''),
@@ -38,8 +38,8 @@ describe('macOS package smoke', () => {
     expect(artifactVersion(zip)).toBe('0.12.0')
   })
 
-  it('rejects ambiguous artifacts and app bundles', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'open-science-macos-ambiguous-'))
+  it('rejects ambiguous artifacts and stale app-bundle branding', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'research-agent-macos-ambiguous-'))
     roots.push(root)
     await Promise.all([
       writeFile(join(root, 'one.dmg'), ''),
@@ -50,6 +50,8 @@ describe('macOS package smoke', () => {
 
     await expect(findArtifact(root, 'dmg')).rejects.toThrow(/found 2/)
     await expect(findAppBundle(root)).rejects.toThrow(/found 2/)
+    await rm(join(root, 'Two.app'), { recursive: true })
+    await expect(findAppBundle(root)).rejects.toThrow(/Research Agent\.app/)
   })
 
   it('parses isolated artifact and Gatekeeper options', () => {
@@ -62,23 +64,23 @@ describe('macOS package smoke', () => {
 
   it('extracts the authenticated packaged service endpoint', () => {
     expect(
-      parsePackagedAppEndpoint('Open Science Web: http://127.0.0.1:3210/?token=abc_123')
+      parsePackagedAppEndpoint('Research Agent Web: http://127.0.0.1:3210/?token=abc_123')
     ).toEqual({ endpoint: 'http://127.0.0.1:3210', auth: 'token=abc_123' })
     expect(parsePackagedAppEndpoint('not ready')).toBeUndefined()
   })
 
   it('isolates Electron state without replacing the macOS home directory', () => {
-    expect(packagedLaunchArguments('/tmp/open-science-profile')).toEqual([
-      '--user-data-dir=/tmp/open-science-profile',
+    expect(packagedLaunchArguments('/tmp/research-agent-profile')).toEqual([
+      '--user-data-dir=/tmp/research-agent-profile',
       '--open-science-headless',
       '--serve=0'
     ])
   })
 
   it('requires the adaptive icon catalog and its legacy ICNS fallback', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'open-science-macos-app-'))
+    const root = await mkdtemp(join(tmpdir(), 'research-agent-macos-app-'))
     roots.push(root)
-    const appBundle = join(root, 'Open Science.app')
+    const appBundle = join(root, 'Research Agent.app')
     const executableDirectory = join(appBundle, 'Contents', 'MacOS')
     const resources = join(appBundle, 'Contents', 'Resources')
     await Promise.all([
@@ -86,15 +88,16 @@ describe('macOS package smoke', () => {
       mkdir(resources, { recursive: true })
     ])
     await Promise.all([
-      writeFile(join(executableDirectory, 'Open Science'), ''),
+      writeFile(join(executableDirectory, 'Research Agent'), ''),
       writeFile(join(resources, 'app.asar'), ''),
       writeFile(join(resources, 'micromamba'), ''),
       writeFile(join(resources, 'Assets.car'), ''),
       writeFile(join(resources, 'icon.icns'), '')
     ])
 
+    await expect(findAppBundle(root)).resolves.toBe(appBundle)
     await expect(assertPackagedResources(appBundle)).resolves.toEqual({
-      executable: join(executableDirectory, 'Open Science'),
+      executable: join(executableDirectory, 'Research Agent'),
       micromamba: join(resources, 'micromamba')
     })
 

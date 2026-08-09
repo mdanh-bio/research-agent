@@ -619,7 +619,9 @@ export const buildConnectorTemplateExport = (
     preview: {
       ...parsed,
       connectorId: source.id,
-      ...(digest ? { digest, suggestedFileName: `open-science-connector-${source.slug}.json` } : {})
+      ...(digest
+        ? { digest, suggestedFileName: `research-agent-connector-${source.slug}.json` }
+        : {})
     },
     ...(parsed.ready ? { contents } : {})
   }

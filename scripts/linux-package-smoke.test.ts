@@ -14,8 +14,8 @@ import {
 
 describe('Linux package smoke', () => {
   it('discovers one AppImage and derives stable or nightly versions', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'open-science-linux-artifacts-'))
-    const appImage = join(root, 'aipoch-open-science-0.11.0-nightly.abc1234-linux-x86_64.AppImage')
+    const root = await mkdtemp(join(tmpdir(), 'research-agent-linux-artifacts-'))
+    const appImage = join(root, 'research-agent-0.11.0-nightly.abc1234-linux-x86_64.AppImage')
     await writeFile(appImage, '')
 
     await expect(findOne(root, /\.AppImage$/, 'AppImage')).resolves.toBe(appImage)
@@ -26,24 +26,31 @@ describe('Linux package smoke', () => {
 
   it('parses only the authenticated packaged-app endpoint', () => {
     expect(
-      parsePackagedAppEndpoint('Open Science Web: http://127.0.0.1:44001/?token=linux_smoke-token')
+      parsePackagedAppEndpoint(
+        'Research Agent Web: http://127.0.0.1:44001/?token=linux_smoke-token'
+      )
     ).toEqual({
       endpoint: 'http://127.0.0.1:44001',
       auth: 'token=linux_smoke-token'
     })
-    expect(parsePackagedAppEndpoint('Open Science Web: http://127.0.0.1:44001/')).toBeUndefined()
+    expect(parsePackagedAppEndpoint('Research Agent Web: http://127.0.0.1:44001/')).toBeUndefined()
   })
 
   it('requires explicit package and installed executable paths', () => {
     expect(
-      parseArguments(['--artifact-dir', 'dist', '--installed-executable', '/usr/bin/open-science'])
-    ).toMatchObject({ installedExecutable: resolve('/usr/bin/open-science') })
+      parseArguments([
+        '--artifact-dir',
+        'dist',
+        '--installed-executable',
+        '/usr/bin/research-agent'
+      ])
+    ).toMatchObject({ installedExecutable: resolve('/usr/bin/research-agent') })
     expect(() => parseArguments([])).toThrow(/Usage:/)
   })
 
   it('fails closed when a packaged runtime resource is missing', async () => {
-    const appRoot = await mkdtemp(join(tmpdir(), 'open-science-linux-package-'))
-    const executable = join(appRoot, 'open-science')
+    const appRoot = await mkdtemp(join(tmpdir(), 'research-agent-linux-package-'))
+    const executable = join(appRoot, 'research-agent')
     await writeFile(executable, '')
     await mkdir(join(appRoot, 'resources'), { recursive: true })
     await writeFile(join(appRoot, 'resources', 'app.asar'), '')

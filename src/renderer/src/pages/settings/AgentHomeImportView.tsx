@@ -191,7 +191,7 @@ const AgentHomeImportView = ({ onImported }: AgentHomeImportViewProps): React.JS
             <code className="font-mono">{frameworkSource.path}</code>
           </>
         ) : null}{' '}
-        on this computer. Check skills to copy into Open Science; the originals stay in place.
+        on this computer. Check skills to copy into Research Agent; the originals stay in place.
       </p>
 
       <div className="mt-4 flex items-center gap-2">

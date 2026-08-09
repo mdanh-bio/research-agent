@@ -215,7 +215,7 @@ describe('SkillsPanel (list view)', () => {
 
     expect(document.body.textContent).toContain('Conversation imports')
     expect(document.body.textContent).toContain(
-      'Choose what conversations can import into Open Science.'
+      'Choose what conversations can import into Research Agent.'
     )
     expect(document.body.textContent).toContain('Skill packages')
     expect(document.body.textContent).toContain('ask before importing them')

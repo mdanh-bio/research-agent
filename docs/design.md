@@ -1,6 +1,6 @@
-# Open Science shadcn/ui Design Specification
+# Research Agent shadcn/ui Design Specification
 
-This specification defines the Open Science workspace design system. The design system is based on shadcn/ui, Radix primitives, Tailwind CSS variables, and semantic tokens. Use shadcn semantic tokens (`bg-background`, `text-foreground`, `bg-card`, and so on) by default. Use workspace tokens (`bg-bg-10`, `text-text-000`, and so on) only for the named surfaces listed in **Workspace Tokens** and the component guidelines below. The canonical token values live in `src/renderer/src/assets/main.css`.
+This specification defines the Research Agent workspace design system. The design system is based on shadcn/ui, Radix primitives, Tailwind CSS variables, and semantic tokens. Use shadcn semantic tokens (`bg-background`, `text-foreground`, `bg-card`, and so on) by default. Use workspace tokens (`bg-bg-10`, `text-text-000`, and so on) only for the named surfaces listed in **Workspace Tokens** and the component guidelines below. The canonical token values live in `src/renderer/src/assets/main.css`.
 
 This document records reusable UI/UX rules only. It must not include sample project names, sample tasks, dataset names, organization IDs, personal email addresses, concrete model product names, or third-party brand copy.
 
@@ -33,7 +33,7 @@ This document records reusable UI/UX rules only. It must not include sample proj
 ```
 
 - Use `cssVariables: true`; expose all colors, radii, rings, and sidebar colors through CSS variables.
-- Use `neutral` as the `baseColor`; the Open Science deep green should only appear through semantic tokens such as `--primary` and `--ring`.
+- Use `neutral` as the `baseColor`; the Research Agent deep green should only appear through semantic tokens such as `--primary` and `--ring`.
 - Use the `.dark` class to override shadcn tokens in dark mode. Components must use tokens from this specification only; do not invent new color variable names outside the shadcn and workspace token sets defined here.
 - Prefer shadcn components for new UI: `Button`, `Dialog`, `DropdownMenu`, `Select`, `Tabs`, `Sidebar`, `Input`, `Textarea`, `Card`, `Separator`, `ScrollArea`, and `Tooltip`.
 
@@ -539,7 +539,7 @@ Workspace-only tokens without a shadcn counterpart, plus shadow tokens. For shar
 - Root: `min-h-svh bg-background text-foreground`.
 - Container: `mx-auto max-w-[1080px] px-8 py-7 pb-16`.
 - Header: `flex items-center justify-between`.
-- Brand title: display `Open Science`, `text-[26px] leading-none font-medium`.
+- Brand title: display `Research Agent`, `text-[26px] leading-none font-medium`.
 - Global search: expose a `Search` ghost icon action in the header; it opens the same shared dialog as
   `Cmd/Ctrl+K` and does not maintain a second search state.
 - Account menu: `Button variant="ghost" size="icon"`, `size-9 rounded-lg`.
@@ -646,7 +646,7 @@ Workspace-only tokens without a shadcn counterpart, plus shadow tokens. For shar
 - Upload is a full-page dropzone (`Drag and drop or click to upload`) accepting a `.md` file or a `.zip` / `.skill` bundle, with a centered "Write from scratch instead" fallback. A dropped file is **parsed first, not imported**: on success it advances to a "Confirm import" page (parsed name, description, and — for a bundle — the file list), with a neutral **Import** button and a **Choose a different file** escape. Nothing is written until Import is confirmed.
 - Duplicate detection on the confirm page uses two signals: an **exact re-upload** (the bundle's sha256 content signature already matches an import) and a **same-name skill** already in the catalog (any source; also covers `.md` uploads). Either one shows an "Already uploaded" pill on the name and an `Info`-icon reminder below the button row (`text-xs text-muted-foreground`) — "…already imported — re-importing is a no-op." for an exact match, or `A skill named "X" already exists.` for a name match. The reminder never blocks import.
 - When a file fails to parse into a valid skill (not a ZIP, no `SKILL.md`, or a `SKILL.md` with no `name`), the failure shows in a danger banner directly under the dropzone: `flex items-start gap-2 rounded-lg border border-danger-000/30 bg-danger-000/10 px-3 py-2 text-xs text-danger-000` with a leading `size-3.5` `AlertTriangle`. This is the reusable inline-error style for the settings pages.
-- Export uses a row-level `Download` action and immediately opens the native Save As dialog. The portable ZIP contains the Skill's `SKILL.md` and ordinary supporting files, excludes Open Science provenance/ownership metadata, and can be uploaded again through the standard Skill import flow. Cancellation is silent, a successful save shows a short status, and failures use the standard Settings danger banner.
+- Export uses a row-level `Download` action and immediately opens the native Save As dialog. The portable ZIP contains the Skill's `SKILL.md` and ordinary supporting files, excludes Research Agent provenance/ownership metadata, and can be uploaded again through the standard Skill import flow. Cancellation is silent, a successful save shows a short status, and failures use the standard Settings danger banner.
 - Stray file drops are neutralized app-wide: the renderer entry prevents the default `dragover` / `drop` so a file released outside a dropzone can never navigate the window to `file://…`.
 
 ## Clickable Area Guidelines
@@ -692,9 +692,9 @@ Workspace-only tokens without a shadcn counterpart, plus shadow tokens. For shar
 
 ## Language Guidelines
 
-- Product naming is consistently `Open Science` in visible app surfaces such as window titles, sidebars, app menus, about information, and help entry points.
+- Product naming is consistently `Research Agent` in visible app surfaces such as window titles, sidebars, app menus, about information, and help entry points.
 - Do not include sample project names, sample research topics, dataset names, personal email addresses, organization IDs, or concrete model product names in reusable UI specifications or base components.
-- Support and diagnostics copy should use generic wording, such as "Contact Open Science support", "Download diagnostic logs", and "Share diagnostic ID".
+- Support and diagnostics copy should use generic wording, such as "Contact Research Agent support", "Download diagnostic logs", and "Share diagnostic ID".
 - Settings for model, font, licensing, theme, and related preferences should use functional names and should not bind explanatory copy to a specific vendor brand.
 - Reasoning or response explanations should use neutral wording, such as "the time the system spends preparing a response", and should avoid personified or brand-specific language.
 - Technical terms such as shadcn, Radix, Tailwind, token, class, hover, focus, and active may remain in English. User-facing interface copy should use a consistent language style within the same page.

@@ -138,7 +138,7 @@ describe('ParserEngine declarative path', () => {
     }
     await engine.call(desc, {}, {})
     const headers = (fetchImpl.mock.calls[0][1] as { headers: Record<string, string> }).headers
-    expect(headers['user-agent']).toMatch(/OpenScience/)
+    expect(headers['user-agent']).toBe('Mozilla/5.0 (compatible; ResearchAgent/1.0)')
   })
 
   it('redacts credentials from the URL in error messages', async () => {

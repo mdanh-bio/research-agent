@@ -1,5 +1,5 @@
-Open Science custom Specialist import guide
-===========================================
+Research Agent custom Specialist import guide
+=============================================
 
 This ZIP is an editable Specialist template. manifest.json is application-generated metadata; do not edit it. You only fill in specialist.json and can optionally bundle Skills.
 
@@ -96,8 +96,8 @@ Never put tokens, passwords, Connector server configuration, or other credential
 
 
 
-Open Science 自定义 Specialist 导入指南
-======================================
+Research Agent 自定义 Specialist 导入指南
+========================================
 
 这个 ZIP 是可编辑的 Specialist 模板。manifest.json 是应用生成的元数据，请勿修改。你只需填写 specialist.json，需要则可以随包加入 Skills。
 

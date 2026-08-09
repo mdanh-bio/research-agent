@@ -220,7 +220,7 @@ describe('ProviderForm field switching', () => {
     expect(container.querySelector('[aria-label="API key"]')).toBeNull()
     expect(container.querySelector('[aria-label="Model"]')).toBeNull()
     expect(container.textContent).toContain(
-      "Copies Codex authentication and, when compatible, the active provider's non-secret loopback route into Open Science"
+      "Copies Codex authentication and, when compatible, the active provider's non-secret loopback route into Research Agent"
     )
     expect(container.textContent).toContain('Skills and sessions are not imported')
   })
@@ -369,12 +369,12 @@ describe('ProviderForm field switching', () => {
     expect(getApiKeySecurityCopy(true)).toEqual({
       title: 'Your key stays private.',
       description:
-        'It is stored only on this device and never uploaded to Open Science. Your OS secure storage protects it, and it is sent only to the selected provider when you make a request.'
+        'Research Agent stores it only on this device in OS secure storage and sends it only to the selected provider when you make a request.'
     })
     expect(getApiKeySecurityCopy(false)).toEqual({
       title: 'Secure storage is unavailable.',
       description:
-        'Open Science will not save API keys until the operating-system credential vault is available. Unlock or authorize the system keychain, then retry.'
+        'Research Agent will not save API keys until the operating-system credential vault is available. Unlock or authorize the system keychain, then retry.'
     })
   })
 

@@ -117,7 +117,7 @@ class SkillCatalogModule {
     const trimmed = token.trim()
     const response = await createAuthenticatedGitHubFetch(this.githubFetch, trimmed)(
       'https://api.github.com/rate_limit',
-      { headers: { 'User-Agent': 'open-science', Accept: 'application/vnd.github+json' } }
+      { headers: { 'User-Agent': 'research-agent', Accept: 'application/vnd.github+json' } }
     )
 
     if (!response.ok) {

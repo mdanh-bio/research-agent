@@ -824,7 +824,7 @@ describe('settings store: startup loading', () => {
     expect(useSettingsStore.getState()).toMatchObject({
       isLoaded: false,
       isLoading: false,
-      loadError: 'Open Science could not load settings. Retry to continue.'
+      loadError: 'Research Agent could not load settings. Retry to continue.'
     })
     expect(useSettingsStore.getState().loadError).not.toContain('/Users/private')
     expect(warn).toHaveBeenCalledWith('Settings startup loading failed', rawError)

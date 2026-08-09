@@ -75,7 +75,7 @@ await host.compute.details('ssh:<alias>', {
 })
 ```
 
-With `login_shell: true`, the remote Bash login profiles run first and then Open Science attempts to
+With `login_shell: true`, the remote Bash login profiles run first and then Research Agent attempts to
 source `~/.bashrc` when it is readable. A `.bashrc` can deliberately return early for non-interactive
 shells, so variables declared after such a guard are not available. A missing `.bashrc` is a no-op.
 Set `login_shell: false` to run the command without either initialization step. Initialization failures
@@ -174,7 +174,7 @@ const r = await c.attach_job(job_id).result()
 //   hidden_files:   ['hpc/<job_id>/hidden/run.log', ...],
 //   output_files:   [...featured_files, ...hidden_files],         // featured first
 //   left_on_remote: [{ uri: 'ssh:<alias>/<abs_path>', size_mb: 420, reason: 'residency:remote' }],
-//   remote_workdir: '.openscience/jobs/<job_id>',
+//   remote_workdir: '.research-agent/jobs/<job_id>',
 //   stdout_tail: '...last 64 KB...',
 //   stderr_tail: '...last 64 KB...'
 // }

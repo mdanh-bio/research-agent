@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 
@@ -18,8 +18,40 @@ import {
 } from '@/pages/workspace/PermissionScopeConfirmationDialog'
 import { useComputeStore } from '@/stores/compute-store'
 
-// A modal approval card for a pending compute call_command. The card cannot be dismissed without
-// a decision — the call is held open in main until the user responds (or a 5-minute timeout fires).
+const ExactSummaryRow = ({
+  label,
+  children
+}: {
+  label: string
+  children: ReactNode
+}): React.JSX.Element => (
+  <div className="flex gap-2">
+    <span className="w-28 shrink-0 text-muted-foreground">{label}</span>
+    <span className="min-w-0 break-all text-foreground">{children}</span>
+  </div>
+)
+
+const formatWallTime = (seconds: number): string => {
+  let remaining = seconds
+  const days = Math.floor(remaining / 86_400)
+  remaining %= 86_400
+  const hours = Math.floor(remaining / 3_600)
+  remaining %= 3_600
+  const minutes = Math.floor(remaining / 60)
+  const secs = remaining % 60
+  const readable = [
+    days > 0 ? `${days}d` : '',
+    hours > 0 ? `${hours}h` : '',
+    minutes > 0 ? `${minutes}m` : '',
+    secs > 0 ? `${secs}s` : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return `${seconds} seconds${readable ? ` (${readable})` : ''}`
+}
+
+// A modal approval card for a pending compute operation. The card cannot be dismissed without a
+// decision — the call is held open in main until the user responds (or a 5-minute timeout fires).
 //
 // Four approval scopes; Broker persists Session/Project/Global and the compute adapter receives a
 // one-call allow decision only after that write succeeds.
@@ -27,6 +59,8 @@ import { useComputeStore } from '@/stores/compute-store'
 //   This session      — approve for (provider, operation) for this persisted session
 //   This project      — approve for (provider, operation) for all future calls in this project
 //   Always            — approve for (provider, operation) across projects
+// submit_job is intentionally different: only Deny/Approve job are shown and main normalizes every
+// allowed response to once, so a remembered permission can never authorize a later remote job.
 export function ComputeApprovalDialog(): React.JSX.Element | null {
   const request = useComputeStore((state) => state.pendingApprovals[0])
   const respondApproval = useComputeStore((state) => state.respondApproval)
@@ -48,6 +82,12 @@ export function ComputeApprovalDialog(): React.JSX.Element | null {
 
   const isLongCommand = dialogRequest.command_preview !== dialogRequest.command_full
   const showFull = expandedRequestId === dialogRequest.id
+  const jobSummary = dialogRequest.job_summary
+  const dispatchBinding = dialogRequest.dispatch_binding
+  const isSingleUse = dialogRequest.single_use === true
+  const executionMode =
+    dialogRequest.execution_mode ??
+    (dialogRequest.shape === 'scheduler_cluster' ? 'slurm' : 'direct_ssh')
 
   return (
     <Dialog.Root open={Boolean(request)}>
@@ -57,18 +97,21 @@ export function ComputeApprovalDialog(): React.JSX.Element | null {
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
           className={dialogPanelClassName(
-            'z-[60] w-[min(480px,calc(100vw-2rem))] overscroll-contain'
+            'z-[60] max-h-[calc(100vh-2rem)] w-[min(520px,calc(100vw-2rem))] overflow-y-auto overscroll-contain'
           )}
         >
           <div className="flex items-start gap-3">
             <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-500" aria-hidden="true" />
             <div className="min-w-0">
-              <Dialog.Title className={dialogTitleClassName}>Allow remote command?</Dialog.Title>
+              <Dialog.Title className={dialogTitleClassName}>
+                {isSingleUse ? 'Approve remote job?' : 'Allow remote command?'}
+              </Dialog.Title>
               <Dialog.Description
                 className={cn(dialogDescriptionClassName, 'text-xs [text-wrap:pretty]')}
               >
-                Remote commands run as your account on the host and are not sandboxed. Approve only
-                if you trust this command.
+                {isSingleUse
+                  ? 'This approval applies only to this job. Remote jobs run as your account and are not sandboxed.'
+                  : 'Remote commands run as your account on the host and are not sandboxed. Approve only if you trust this command.'}
               </Dialog.Description>
             </div>
           </div>
@@ -77,7 +120,7 @@ export function ComputeApprovalDialog(): React.JSX.Element | null {
             <div className="flex gap-2">
               <span className="w-16 shrink-0 text-muted-foreground">Host</span>
               <span className="min-w-0 truncate font-medium text-foreground">
-                {dialogRequest.provider_name}
+                {jobSummary?.host ?? dialogRequest.provider_name}
               </span>
             </div>
             <div className="flex gap-2">
@@ -114,7 +157,7 @@ export function ComputeApprovalDialog(): React.JSX.Element | null {
                 )}
               </div>
             </div>
-            {dialogRequest.inputs_summary && (
+            {!jobSummary && dialogRequest.inputs_summary && (
               <div className="flex gap-2">
                 <span className="w-16 shrink-0 text-muted-foreground">Inputs</span>
                 <span className="min-w-0 break-words text-foreground">
@@ -124,28 +167,163 @@ export function ComputeApprovalDialog(): React.JSX.Element | null {
             )}
           </div>
 
+          {jobSummary && (
+            <div
+              className="mt-3 space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-xs"
+              data-testid="compute-job-summary"
+            >
+              <ExactSummaryRow label="Execution mode">
+                {executionMode === 'slurm'
+                  ? 'Slurm scheduler (sbatch)'
+                  : 'Direct SSH (no scheduler)'}
+              </ExactSummaryRow>
+              {dispatchBinding && (
+                <>
+                  <ExactSummaryRow label="SSH endpoint">
+                    <span className="font-mono">
+                      {dispatchBinding.ssh_target.user ? `${dispatchBinding.ssh_target.user}@` : ''}
+                      {dispatchBinding.ssh_target.hostname}:{dispatchBinding.ssh_target.port}
+                    </span>
+                  </ExactSummaryRow>
+                  <ExactSummaryRow label="SSH alias">
+                    <span className="font-mono">{dispatchBinding.ssh_target.alias}</span>
+                  </ExactSummaryRow>
+                  {dispatchBinding.ssh_target.identity_file && (
+                    <ExactSummaryRow label="Identity file">
+                      <span className="font-mono">{dispatchBinding.ssh_target.identity_file}</span>
+                    </ExactSummaryRow>
+                  )}
+                  {dispatchBinding.ssh_target.proxy_jump && (
+                    <ExactSummaryRow label="Proxy jump">
+                      <span className="font-mono">{dispatchBinding.ssh_target.proxy_jump}</span>
+                    </ExactSummaryRow>
+                  )}
+                  {dispatchBinding.ssh_target.host_key_alias && (
+                    <ExactSummaryRow label="Host-key alias">
+                      <span className="font-mono">{dispatchBinding.ssh_target.host_key_alias}</span>
+                    </ExactSummaryRow>
+                  )}
+                  {dispatchBinding.ssh_target.proxy_command_hash && (
+                    <ExactSummaryRow label="Proxy command SHA-256">
+                      <span className="font-mono">
+                        {dispatchBinding.ssh_target.proxy_command_hash}
+                      </span>
+                    </ExactSummaryRow>
+                  )}
+                  <ExactSummaryRow label="SSH options">
+                    <span className="font-mono">
+                      {dispatchBinding.ssh_target.invocation_options.join(' ')}
+                    </span>
+                  </ExactSummaryRow>
+                  <ExactSummaryRow label="SSH config SHA-256">
+                    <span className="font-mono">
+                      {dispatchBinding.ssh_target.effective_config_hash}
+                    </span>
+                  </ExactSummaryRow>
+                  <ExactSummaryRow label="SSH invocation SHA-256">
+                    <span className="font-mono">{dispatchBinding.ssh_target.invocation_hash}</span>
+                  </ExactSummaryRow>
+                  <ExactSummaryRow label="Approval binding SHA-256">
+                    <span className="font-mono">{dispatchBinding.binding_hash}</span>
+                  </ExactSummaryRow>
+                </>
+              )}
+              {executionMode === 'direct_ssh' && (
+                <p
+                  className="rounded border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300"
+                  data-testid="direct-ssh-resource-warning"
+                >
+                  Direct SSH does not enforce partition, account, CPU, GPU, or memory requests.
+                </p>
+              )}
+              <ExactSummaryRow label="Partition">
+                {executionMode === 'direct_ssh'
+                  ? `${jobSummary.partition ?? 'None requested'} (not applied)`
+                  : (jobSummary.partition ?? 'Scheduler default')}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Account">
+                {executionMode === 'direct_ssh'
+                  ? `${jobSummary.account ?? 'None requested'} (not applied)`
+                  : (jobSummary.account ?? 'Scheduler default')}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="CPU">
+                {`${jobSummary.cpu.nodes} node(s); ${jobSummary.cpu.tasks_per_node} task(s)/node; ${jobSummary.cpu.cpus_per_task} CPU(s)/task; ${jobSummary.cpu.total_cpus} total${executionMode === 'direct_ssh' ? ' (not enforced)' : ''}`}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="GPU">
+                {jobSummary.gpu
+                  ? `${jobSummary.gpu.count} × ${jobSummary.gpu.type ?? 'scheduler-selected type'}${executionMode === 'direct_ssh' ? ' (not enforced)' : ''}`
+                  : `None${executionMode === 'direct_ssh' ? ' (not enforced)' : ''}`}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Memory">
+                {jobSummary.memory_mib === null
+                  ? executionMode === 'direct_ssh'
+                    ? 'None requested (not enforced)'
+                    : 'Scheduler default'
+                  : `${jobSummary.memory_mib} MiB${executionMode === 'direct_ssh' ? ' (not enforced)' : ''}`}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Wall time">
+                {formatWallTime(jobSummary.wall_time_seconds)}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Script SHA-256">
+                <span className="font-mono">{jobSummary.script_hash}</span>
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Inputs">
+                {dispatchBinding && dispatchBinding.inputs.length > 0
+                  ? dispatchBinding.inputs.map((input) => (
+                      <span key={`${input.destination}:${input.sha256}`} className="block">
+                        {input.destination}: {input.size_bytes} bytes; sha256{' '}
+                        <span className="font-mono">{input.sha256}</span>
+                      </span>
+                    ))
+                  : jobSummary.inputs.length > 0
+                    ? jobSummary.inputs.join(', ')
+                    : 'None'}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Expected outputs">
+                {jobSummary.expected_outputs.length > 0
+                  ? jobSummary.expected_outputs.join(', ')
+                  : 'None declared'}
+              </ExactSummaryRow>
+              <ExactSummaryRow label="Working directory">
+                <span className="font-mono">{jobSummary.working_directory}</span>
+              </ExactSummaryRow>
+            </div>
+          )}
+
           <div className={cn(dialogFooterClassName, 'mt-4 flex-wrap')}>
             <Button type="button" variant="destructive" onClick={deny}>
               Deny
             </Button>
-            <Button type="button" variant="outline" onClick={approveOnce}>
-              Once
-            </Button>
-            <Button type="button" variant="outline" onClick={approveSession}>
-              This session
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setPendingBroadScope('project')}>
-              This project
-            </Button>
-            <Button type="button" onClick={() => setPendingBroadScope('global')}>
-              Always
-            </Button>
+            {isSingleUse ? (
+              <Button type="button" onClick={approveOnce}>
+                Approve job
+              </Button>
+            ) : (
+              <>
+                <Button type="button" variant="outline" onClick={approveOnce}>
+                  Once
+                </Button>
+                <Button type="button" variant="outline" onClick={approveSession}>
+                  This session
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPendingBroadScope('project')}
+                >
+                  This project
+                </Button>
+                <Button type="button" onClick={() => setPendingBroadScope('global')}>
+                  Always
+                </Button>
+              </>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>
       <PermissionScopeConfirmationDialog
         confirmation={
-          pendingBroadScope
+          pendingBroadScope && !isSingleUse
             ? {
                 scope: pendingBroadScope,
                 subject: `remote commands on ${dialogRequest.provider_name}`,

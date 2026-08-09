@@ -1,6 +1,16 @@
-# Open Science — Product Requirements Document
+# AIPOCH Open Science PRD — inherited baseline reference
 
-> Status: living document, tracks the shipped product plus near-term scope. For the long-range vision and phase-by-phase delivery plan, see [`ROADMAP.md`](../ROADMAP.md). For the visual/interaction spec, see [`design.md`](../design.md).
+> **Research Agent status:** This document is retained from the AIPOCH Open Science v0.12.1
+> application baseline. In the text below, "Open Science" means that upstream product and its
+> inherited capabilities; it is not a claim that Research Agent has activated every target described
+> here. Research Agent is a private, Apple-Silicon-first source build with no public release or public
+> update channel. Its updater is disabled and updates are manual. Use
+> [`knowledge/current-state.md`](../knowledge/current-state.md) for verified behavior and
+> [`docs/roadmap.md`](roadmap.md) for the Research Agent delivery plan.
+
+Upstream status at the pinned baseline: this was a living document covering AIPOCH's shipped product
+and near-term scope. The visual and interaction baseline remains in [`design.md`](design.md), while the
+root [`ROADMAP.md`](../ROADMAP.md) is retained as an explicitly labeled upstream roadmap reference.
 
 ## 1. Summary
 
@@ -25,7 +35,7 @@ This shows up as four structural pains:
 - Make every artifact the agent produces **traceable back to the code, data, and environment** that generated it.
 - Keep the system **model-agnostic and self-hostable** by design, so no single vendor's pricing, billing region, or infrastructure choices gate access to it.
 - Ship a **desktop-first experience** today, with the underlying orchestration core designed to support additional interfaces (CLI/SDK, web) later without a rewrite.
-- Be honest about maturity: this PRD documents what exists, what's partially built, and what's aspirational — see the [Roadmap](../ROADMAP.md) for the phase-by-phase breakdown.
+- Be honest about upstream maturity: this preserved PRD documents what existed, what was partially built, and what was aspirational in the pinned AIPOCH baseline — see the [baseline Roadmap](../ROADMAP.md) for its phase-by-phase breakdown.
 
 ## 4. Non-Goals
 
@@ -42,7 +52,7 @@ This shows up as four structural pains:
 
 ## 6. Product Principles
 
-These are the constraints the project treats as non-negotiable as it grows (see the founding vision in the [README](../README.md#design-principles) for full rationale):
+These are the constraints the upstream project treated as non-negotiable as it grew (see the founding vision in the [pinned AIPOCH README](https://github.com/aipoch/open-science/blob/218d77e17a91c13f4797e943a723cf0f8e681387/README.md#design-principles) for its original rationale):
 
 - **Access is a right, not a privilege.** No plan tier, billing-region allowlist, or approval queue stands between a researcher and the software.
 - **Model-agnostic core.** The agent runtime should ultimately talk to LLMs through a pluggable gateway — Claude, GPT, Gemini, DeepSeek, Qwen, or a locally-hosted open-weight model are all first-class citizens, not a hardcoded dependency. Today's product has pluggable Claude Code, OpenCode, and Codex backends, while provider compatibility still depends on the selected backend's supported API protocols — see [§8](#8-current-architecture-what-is-actually-implemented).
@@ -67,7 +77,7 @@ Open Science today is an Electron + React + TypeScript desktop application built
 
 | Layer                      | Responsibility                                                            | Current implementation                                                                                                                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Interface**              | Desktop shell, workspace UI, home page                                    | Electron main/renderer split; React + TypeScript; shadcn/Radix design system (see [`design.md`](../design.md))                                                                                                                            |
+| **Interface**              | Desktop shell, workspace UI, home page                                    | Electron main/renderer split; React + TypeScript; shadcn/Radix design system (see [`design.md`](design.md))                                                                                                                               |
 | **Agent Harness**          | Plan → execute → reflect loop, tool-call visualization, permission gating | Agent runtime wrapped over the Agent Client Protocol (ACP), with Claude Code, OpenCode, and Codex selectable behind the same runtime; typed tool-activity rows; scoped permission gates; specialist profiles; and an opt-in reviewer      |
 | **Execution / Data Plane** | Managed code execution, artifact generation                               | Persistent Python, R, and REPL control-plane kernels plus stateless shell execution (`src/main/notebook/`) with durable, inspectable run history, app-managed environments, and remote SSH execution targets                              |
 | **Persistence**            | Project/session storage, artifact storage                                 | Prisma + SQLite for project and provenance metadata; per-project, per-file session storage on disk (`src/main/session-persistence/`); immutable artifact versions and evidence sidecars under app-managed storage (`src/main/artifacts/`) |
@@ -170,11 +180,16 @@ Exact environment export/restore, portable lock generation, and full-fidelity Se
 
 For the gap between this and the full target architecture (model-agnostic gateway, deterministic reproduction, skills commons, remote compute, security hardening, etc.), see the [Capability Map in `ROADMAP.md`](../ROADMAP.md#capability-map) — this PRD describes what the product is _for_; the roadmap tracks what's _built_.
 
-## 9. Distribution & Packaging
+## 9. Distribution & Packaging (upstream baseline)
 
-- **Platforms:** macOS, Windows, and Linux via `electron-builder` (`npm run build:mac` / `build:win` / `build:linux`).
-- **macOS signing & notarization.** Official release builds are **Developer ID signed and notarized by Apple** (notarization is decoupled into a capped, re-runnable `notarize-mac` CI job that staples the dmg/zip before publish), so downloaded releases open without a Gatekeeper prompt. Self-built or community-distributed `.app`s aren't notarized; they are deep ad-hoc signed at pack time (see `build/adhoc-sign.cjs`) so Gatekeeper shows the bypassable "unidentified developer" prompt instead of an unrecoverable "app is damaged" error on a quarantined copy — users right-click → Open or clear the quarantine flag; see [README: macOS Gatekeeper](../README.md#macos-gatekeeper) for the exact command. Windows builds are not yet signed with an Authenticode certificate.
-- **In-place auto-update.** Packaged builds self-update via `electron-updater` on macOS, Windows, and Linux — background checks against the stable release channel apply updates in place, with a manual-download fallback when auto-update can't complete.
+The bullets below describe the inherited AIPOCH distribution design. Research Agent retains the
+cross-platform source layout but supports Apple Silicon first, has no public installer release, and
+does not consume AIPOCH's update feed. The current unpacked app is a local development artifact, not a
+signed/notarized Research Agent release.
+
+- **Upstream platforms:** macOS, Windows, and Linux via `electron-builder` (`npm run build:mac` / `build:win` / `build:linux`).
+- **Upstream macOS signing & notarization.** AIPOCH's official release workflow supports Developer ID signing and Apple notarization. Self-built Research Agent `.app` bundles are only ad-hoc signed unless the owner separately provisions and verifies a private release identity.
+- **Research Agent update boundary.** AIPOCH packaged builds use `electron-updater`, but Research Agent sets its update strategy to disabled on every platform. There is no public Research Agent release feed; review, build, and install updates manually.
 - **Prisma runtime.** The generated Prisma client ships outside the `asar` archive (via `extraResources`) because its native query engine can't load from inside an asar; the native Claude agent binary is similarly unpacked (`asarUnpack`) so it can be spawned as a child process at runtime.
 
 ## 10. Success Signals (Directional, Not Committed Metrics)
@@ -195,4 +210,4 @@ These are tracked as open design questions in [Discussions](https://github.com/a
 
 ---
 
-_This PRD reflects the current codebase and product direction, and is updated as scope and implementation evolve. See [`ROADMAP.md`](../ROADMAP.md) for delivery phases and the long-range vision._
+_Preserved from the AIPOCH v0.12.1 baseline. It is not the Research Agent current-state ledger or active roadmap._

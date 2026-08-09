@@ -1,7 +1,7 @@
 name: Bug report
 description: Report something that isn't working as expected
-title: "[Bug]: "
-labels: ["bug"]
+title: '[Bug]: '
+labels: ['bug']
 body:
   - type: markdown
     attributes:
@@ -15,7 +15,7 @@ body:
       options:
         - label: I searched existing issues and this has not been reported yet.
           required: true
-        - label: I'm running a recent version of Open Science.
+        - label: I'm running a recent reviewed Research Agent build.
           required: true
   - type: textarea
     id: what-happened

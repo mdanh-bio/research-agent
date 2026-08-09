@@ -250,7 +250,7 @@ export const createProductionMicromambaRunner = (
   const localAppData = env.LOCALAPPDATA ?? (home ? join(home, 'AppData', 'Local') : undefined)
   const toolsDir =
     deps.localToolsDir ??
-    (localAppData ? join(localAppData, 'OpenScience', 'tools', 'micromamba') : undefined)
+    (localAppData ? join(localAppData, 'ResearchAgent', 'tools', 'micromamba') : undefined)
   if (!toolsDir) throw new Error('Could not resolve a local tools directory for micromamba.')
 
   return createMicromambaRunnerResolver({ candidates, toolsDir, preflight: deps.preflight })

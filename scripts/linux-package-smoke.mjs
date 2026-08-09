@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const APPIMAGE_PATTERN = /^aipoch-open-science-(.+)-linux-x86_64\.AppImage$/
-const SMOKE_ROOT_PREFIX = 'open-science-linux-package-smoke-'
+const APPIMAGE_PATTERN = /^research-agent-(.+)-linux-x86_64\.AppImage$/
+const SMOKE_ROOT_PREFIX = 'research-agent-linux-package-smoke-'
 const STARTUP_TIMEOUT_MS = 60_000
 
 const delay = (milliseconds) =>
@@ -31,7 +31,7 @@ const appImageVersion = (path) => {
 
 const parsePackagedAppEndpoint = (output) => {
   const match = output.match(
-    /Open Science Web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/
+    /Research Agent Web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/
   )
   if (!match) return undefined
   const url = new URL(match[1])
@@ -91,8 +91,8 @@ const findResourceRoot = async (executable, resolvedExecutable = executable) => 
   const candidates = [
     join(dirname(resolvedExecutable), 'resources'),
     join(bundleRoot, 'resources'),
-    join(bundleRoot, 'usr', 'lib', 'open-science', 'resources'),
-    join(bundleRoot, 'usr', 'lib', 'Open Science', 'resources')
+    join(bundleRoot, 'usr', 'lib', 'research-agent', 'resources'),
+    join(bundleRoot, 'usr', 'lib', 'Research Agent', 'resources')
   ]
   for (const candidate of [...new Set(candidates)]) {
     if (await pathExists(join(candidate, 'app.asar'))) return candidate
@@ -142,7 +142,7 @@ const launchAndProbe = async ({ executable, expectedVersion, env }) => {
     if (!response.ok) throw new Error(`Packaged Linux bootstrap returned HTTP ${response.status}.`)
     const bootstrap = await response.json()
     if (
-      bootstrap.appName !== 'Open Science' ||
+      bootstrap.appName !== 'Research Agent' ||
       bootstrap.appVersion !== expectedVersion ||
       bootstrap.platform !== 'linux'
     ) {
@@ -185,7 +185,7 @@ const parseArguments = (argv) => {
   const installedExecutable = valueFor('--installed-executable')
   if (!artifactDirectory || !installedExecutable) {
     throw new Error(
-      'Usage: --artifact-dir <path> --installed-executable <path-to-installed-open-science>'
+      'Usage: --artifact-dir <path> --installed-executable <path-to-installed-research-agent>'
     )
   }
   return {
@@ -204,7 +204,7 @@ const main = async () => {
     ...process.env,
     HOME: join(root, 'home'),
     XDG_CONFIG_HOME: join(root, 'config'),
-    OPEN_SCIENCE_STORAGE_ROOT: join(root, 'storage')
+    RESEARCH_AGENT_E2E_STORAGE_ROOT: join(root, 'storage')
   }
 
   try {

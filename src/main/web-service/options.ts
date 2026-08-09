@@ -21,7 +21,7 @@ const parseWebModeOptions = (
     : envPort
   const parsedPort = requestedPort ? Number.parseInt(requestedPort, 10) : DEFAULT_WEB_PORT
   if (!Number.isInteger(parsedPort) || parsedPort < 0 || parsedPort > 65535) {
-    throw new Error(`Invalid Open Science web port: ${requestedPort}`)
+    throw new Error(`Invalid Research Agent web port: ${requestedPort}`)
   }
   return { enabled, headless, port: parsedPort }
 }

@@ -22,8 +22,8 @@ import {
   registerRendererDiagnosticsIpc
 } from './renderer-diagnostics'
 
-const APP_NAME = 'Open Science'
-const APP_USER_MODEL_ID = 'com.aipoch.open-science'
+const APP_NAME = 'Research Agent'
+const APP_USER_MODEL_ID = 'bio.mdanh.research-agent'
 const shouldRunArtifactMcpServer = process.argv.includes(ARTIFACT_MCP_SERVER_ARG)
 const shouldRunNotebookMcpServer = process.argv.includes(NOTEBOOK_MCP_SERVER_ARG)
 const shouldRunReviewerMcpProxy = process.argv.includes(REVIEWER_MCP_PROXY_ARG)
@@ -193,7 +193,7 @@ async function startElectronApp(mainEntryPath: string): Promise<void> {
       const crashReporting = startLocalCrashReporting({
         platform: process.platform,
         productName: APP_NAME,
-        companyName: 'aipoch',
+        companyName: 'mdanh-bio',
         appVersion: app.getVersion(),
         start: (options) => crashReporter.start(options)
       })

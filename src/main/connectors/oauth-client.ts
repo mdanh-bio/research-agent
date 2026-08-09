@@ -59,7 +59,9 @@ export class OAuthCallbackServer {
       const pending = this.pending.get(state)
       if (!pending) {
         response.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
-        response.end('<h1>Open Science authorization expired</h1><p>You can close this window.</p>')
+        response.end(
+          '<h1>Research Agent authorization expired</h1><p>You can close this window.</p>'
+        )
         return
       }
 
@@ -174,7 +176,7 @@ export class PersistentOAuthClientProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: 'Open Science',
+      client_name: 'Research Agent',
       redirect_uris: [this.options.redirectUrl],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

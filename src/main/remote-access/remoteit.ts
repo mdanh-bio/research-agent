@@ -12,8 +12,8 @@ const REMOTE_IT_HTTP_TYPE = 7
 const REMOTE_IT_BATCH_MARKER = '__OPEN_SCIENCE_REMOTEIT_BATCH_COMMAND_END__'
 const REMOTE_IT_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500, 3_000, 5_000] as const
 const REMOTE_IT_DEVICE_SETUP_AUTHORIZATION_MESSAGE =
-  'This computer must be added as a Remote.It Device before Open Science can configure remote access. In Remote.It, choose +, select This system, and complete Add Device once. Then return to Open Science and click Detect again; both Open Science services will be created automatically.'
-export const REMOTE_IT_APP_SERVICE_NAME = 'Open Science Remote'
+  'This computer must be added as a Remote.It Device before Research Agent can configure remote access. In Remote.It, choose +, select This system, and complete Add Device once. Then return to Research Agent and click Detect again; both Research Agent services will be created automatically.'
+export const REMOTE_IT_APP_SERVICE_NAME = 'Research Agent Remote'
 export const REMOTE_IT_BROWSER_SERVICE_NAME = 'System Service'
 
 type CommandResult = { stdout: string; stderr: string }
@@ -406,7 +406,7 @@ const readStatusAfterMutation = async (
   }
   const detail = commandError(lastError, 'Remote.It status is temporarily unavailable.').message
   throw new Error(
-    `Remote.It accepted the service changes, but its background agent is still restarting. Open Science saved the new Service IDs and will reuse them. Wait a few seconds, then click Detect; do not add the device or switch modes again. Technical details: ${detail}`
+    `Remote.It accepted the service changes, but its background agent is still restarting. Research Agent saved the new Service IDs and will reuse them. Wait a few seconds, then click Detect; do not add the device or switch modes again. Technical details: ${detail}`
   )
 }
 
@@ -585,14 +585,14 @@ const enrichWindowsServiceNames = async (
     }
     if (unresolvedIds.length > 0) {
       throw new Error(
-        'Remote.It has not reported the names of existing Windows services yet. Wait a few seconds, then try again; Open Science did not create duplicates.'
+        'Remote.It has not reported the names of existing Windows services yet. Wait a few seconds, then try again; Research Agent did not create duplicates.'
       )
     }
     return status
   } catch (error) {
     throw commandError(
       error,
-      'Remote.It could not identify existing Windows services, so Open Science stopped before creating duplicates.'
+      'Remote.It could not identify existing Windows services, so Research Agent stopped before creating duplicates.'
     )
   }
 }
@@ -640,7 +640,7 @@ const modifyService = async (
   } catch (error) {
     throw commandError(
       error,
-      'Remote.It could not update the Open Science service. On macOS or Linux, service management may require administrator approval.'
+      'Remote.It could not update the Research Agent service. On macOS or Linux, service management may require administrator approval.'
     )
   }
 }
@@ -907,7 +907,7 @@ export const enableRemoteItServices = async (
     namedBrowserServiceId ??
     managed.browserServiceId
   if (!appServiceId || !browserServiceId || appServiceId === browserServiceId) {
-    throw new Error('Remote.It did not return two distinct Open Science service identifiers.')
+    throw new Error('Remote.It did not return two distinct Research Agent service identifiers.')
   }
   await managed.onServiceIdsDiscovered?.({ appServiceId, browserServiceId })
 
@@ -934,7 +934,7 @@ export const enableRemoteItServices = async (
     !hasReadyServiceConfiguration(finalBrowser, localPort)
   ) {
     throw new Error(
-      `Remote.It did not make both Open Science service endpoints ready at 127.0.0.1:${localPort}.`
+      `Remote.It did not make both Research Agent service endpoints ready at 127.0.0.1:${localPort}.`
     )
   }
 
@@ -1004,7 +1004,7 @@ export const enableRemoteItService = async (
     } catch (error) {
       throw commandError(
         error,
-        'Remote.It could not create the Open Science service. On macOS or Linux, service management may require administrator approval.'
+        'Remote.It could not create the Research Agent service. On macOS or Linux, service management may require administrator approval.'
       )
     }
     status = await readStatus(binaryPath, run)
@@ -1032,7 +1032,7 @@ export const enableRemoteItService = async (
   }
   if (!finalService || !hasExpectedServiceConfiguration(finalService, localPort, true)) {
     throw new Error(
-      `Remote.It did not apply the Open Science service endpoint 127.0.0.1:${localPort}.`
+      `Remote.It did not apply the Research Agent service endpoint 127.0.0.1:${localPort}.`
     )
   }
   const installation = installationView(
@@ -1042,7 +1042,7 @@ export const enableRemoteItService = async (
     serviceId
   )
   if (!installation.service?.enabled) {
-    throw new Error('Remote.It created the Open Science service but it is not enabled.')
+    throw new Error('Remote.It created the Research Agent service but it is not enabled.')
   }
   return { installation, serviceId }
 }
@@ -1073,13 +1073,13 @@ export const ensureRemoteItConnectLink = async (
     const returnedServiceId = stringValue(link?.service?.id)
     const url = stringValue(link?.url)
     if (link?.enabled !== true || returnedServiceId !== serviceId || !url) {
-      throw new Error('Remote.It did not enable a Persistent Public URL for Open Science.')
+      throw new Error('Remote.It did not enable a Persistent Public URL for Research Agent.')
     }
     return url
   } catch (error) {
     const detail = commandError(
       error,
-      'Remote.It could not enable the Persistent Public URL for Open Science.'
+      'Remote.It could not enable the Persistent Public URL for Research Agent.'
     ).message
     throw new Error(`Remote.It browser URL setup failed: ${detail}`)
   }

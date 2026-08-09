@@ -263,7 +263,10 @@ describe('OpenCode immediate handoff production path', () => {
         new NotebookKernelExecutor({
           pythonLoopPath: loops.pythonLoopPath,
           rLoopPath: loops.rLoopPath,
-          replLoopPath: loops.replLoopPath
+          replLoopPath: loops.replLoopPath,
+          // This integration covers completion ownership and continuation ordering, not macOS
+          // Seatbelt itself. Avoid nesting sandbox-exec under sandboxed test runners on macOS.
+          platform: 'linux'
         })
     })
     const server = new NotebookLocalRpcServer(notebookService, {

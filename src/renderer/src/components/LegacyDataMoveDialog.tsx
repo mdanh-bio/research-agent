@@ -14,7 +14,7 @@ import { StorageMigrationModal } from '@/pages/settings/StorageMigrationModal'
 type LegacyDataMoveDialogProps = {
   // The hidden config root where a legacy install's data currently lives (e.g. ~/.open-science).
   currentDataRoot: string
-  // The parent the "Move to OpenScience" action relocates into; its derived data root (resolved via
+  // The parent the "Move to ResearchAgent" action relocates into; its derived data root (resolved via
   // inspectDataRoot below) is the visible <parent>/OpenScience folder.
   defaultParent: string
   // Called after the user declines and the "don't ask again" flag has been persisted.
@@ -22,7 +22,7 @@ type LegacyDataMoveDialogProps = {
 }
 
 // One-time, non-forced upgrade prompt for a pre-§20 legacy install whose data still sits in the
-// hidden config root. Offers to move it into the visible OpenScience folder (default or a folder the
+// hidden config root. Offers to move it into the visible ResearchAgent folder (default or a folder the
 // user picks), or to keep it where it is - the last choice is remembered so it never re-appears.
 // Accepting reuses the ordinary relocation flow (StorageMigrationModal): a reversible copy, then a
 // restart. Moving sets settings.dataRoot, which by itself disqualifies the prompt on the next launch,
@@ -34,7 +34,7 @@ const LegacyDataMoveDialog = ({
 }: LegacyDataMoveDialogProps): React.JSX.Element => {
   // When set, hand off to the shared migration modal targeting this parent; null returns to the prompt.
   const [migrationTarget, setMigrationTarget] = useState<string | null>(null)
-  // The exact <home>/OpenScience path "Move to OpenScience" would create. Resolved server-side via
+  // The exact <home>/ResearchAgent path "Move to ResearchAgent" would create. Resolved server-side via
   // inspectDataRoot(defaultParent) rather than getInfo's dataRoot, which for a legacy install is the
   // hidden config root itself.
   const [destination, setDestination] = useState<string | undefined>(undefined)
@@ -68,7 +68,7 @@ const LegacyDataMoveDialog = ({
       // would mean abandoning the legacy data, which isn't what "move it out" should do here.
       setPickError(
         inspection.kind === 'adopt'
-          ? 'That folder already contains Open Science data. Pick an empty folder, or use the default location.'
+          ? 'That folder already contains Research Agent data. Pick an empty folder, or use the default location.'
           : (inspection.error ?? 'That folder can’t be used. Pick another one.')
       )
     } finally {
@@ -99,7 +99,7 @@ const LegacyDataMoveDialog = ({
             Move your data to a visible folder?
           </AlertDialog.Title>
           <AlertDialog.Description className={dialogDescriptionClassName}>
-            Your research data is in a hidden folder. Moving it into a visible OpenScience folder
+            Your research data is in a hidden folder. Moving it into a visible ResearchAgent folder
             makes it easy to find and back up — your settings and history stay where they are.
           </AlertDialog.Description>
 
@@ -133,7 +133,7 @@ const LegacyDataMoveDialog = ({
           <div className="mt-6 flex flex-col gap-2">
             <Button type="button" disabled={isPicking} onClick={handleMoveToDefault}>
               <FolderInput aria-hidden="true" />
-              Move to OpenScience
+              Move to ResearchAgent
             </Button>
             <Button
               type="button"

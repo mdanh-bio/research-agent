@@ -99,6 +99,7 @@ describe('zinc / zinc_search_by_id', () => {
     expect((submitInit.headers as Record<string, string>)['content-type']).toBe(
       'application/x-www-form-urlencoded'
     )
+    expect((submitInit.headers as Record<string, string>)['user-agent']).toBe('ResearchAgent/1.0')
     const submitBody = submitBodyOf(fetchImpl)
     expect(submitBody.get('zinc_ids')).toBe('ZINC000000000012')
     expect(submitBody.get('output_fields')).toBe('zinc_id,smiles,tranche_name,catalogs')

@@ -8,6 +8,7 @@ import { stat } from 'node:fs/promises'
 import { platform } from 'node:os'
 import { join } from 'node:path'
 
+import { normalizeComputeSshAlias } from '../../shared/compute'
 import type { ResolvedSshTarget } from './ssh-runner'
 
 // Glob metacharacters that must not appear in an import path (prevents shell expansion).
@@ -63,6 +64,7 @@ const findWindowsScp = (): string => {
 // Returns the path to the scp binary for the current platform.
 export const resolveScpBinary = (): string => {
   if (platform() === 'win32') return findWindowsScp()
+  if (platform() === 'darwin') return '/usr/bin/scp'
   return 'scp'
 }
 
@@ -74,6 +76,18 @@ export const validateImportPath = (
   remotePath: string
 ): 'outside_roots' | 'not_a_file' | undefined => {
   if (!remotePath.startsWith('/')) return 'outside_roots'
+  if (GLOB_CHARS.test(remotePath)) return 'outside_roots'
+  if (SHELL_UNSAFE_CHARS.test(remotePath)) return 'outside_roots'
+  return undefined
+}
+
+// Validates an scp transfer source. User-selected imports remain absolute-only through
+// validateImportPath(), but app-owned job workdirs live under ~/.research-agent (and legacy
+// ~/.openscience records may still be harvested) and must
+// remain harvestable. Both forms retain the same shell/glob rejection because traditional scp may
+// pass the remote operand through a shell.
+export const validateTransferSourcePath = (remotePath: string): 'outside_roots' | undefined => {
+  if (!(remotePath.startsWith('/') || remotePath.startsWith('~/'))) return 'outside_roots'
   if (GLOB_CHARS.test(remotePath)) return 'outside_roots'
   if (SHELL_UNSAFE_CHARS.test(remotePath)) return 'outside_roots'
   return undefined
@@ -108,12 +122,20 @@ export const buildScpArgs = (
   remotePath: string,
   localPath: string
 ): string[] => {
+  if (validateTransferSourcePath(remotePath)) {
+    throw new Error('Remote SCP source path is not safe for transfer.')
+  }
   const scpExtraArgs = buildScpExtraArgs(target)
+  const host = normalizeComputeSshAlias(target.host)
 
   // Remote source: user@host:path (or just host:path when User is already in -o User=).
-  const remoteSpec = `${target.host}:${remotePath}`
+  const remoteSpec = `${host}:${remotePath}`
 
-  return [...scpExtraArgs, remoteSpec, localPath]
+  return [...scpExtraArgs, '--', remoteSpec, localPath]
+}
+
+export const validateUploadPath = (remotePath: string): 'outside_roots' | undefined => {
+  return validateTransferSourcePath(remotePath)
 }
 
 // Builds scp args for uploading a local file to a remote destination.
@@ -124,12 +146,16 @@ export const buildScpUploadArgs = (
   localPath: string,
   remotePath: string
 ): string[] => {
+  if (validateUploadPath(remotePath)) {
+    throw new Error('Remote SCP destination path is not safe for transfer.')
+  }
   const scpExtraArgs = buildScpExtraArgs(target)
+  const host = normalizeComputeSshAlias(target.host)
 
   // Remote destination: user@host:path.
-  const remoteSpec = `${target.host}:${remotePath}`
+  const remoteSpec = `${host}:${remotePath}`
 
-  return [...scpExtraArgs, localPath, remoteSpec]
+  return [...scpExtraArgs, '--', localPath, remoteSpec]
 }
 
 // Result of a single scp transfer attempt.

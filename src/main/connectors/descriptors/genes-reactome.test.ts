@@ -122,6 +122,7 @@ describe('genes / map_reactome_pathways', () => {
     const [batchUrl, batchInit] = batchCall as [string, RequestInit]
     expect(batchInit.body).toBe('TP53\nEGFR\nNOSUCH')
     expect((batchInit.headers as Record<string, string>)['content-type']).toBe('text/plain')
+    expect((batchInit.headers as Record<string, string>)['user-agent']).toBe('ResearchAgent/1.0')
     expect(batchUrl).toContain('/identifiers/projection')
     expect(batchUrl).toContain('species=Homo%20sapiens')
     expect(batchUrl).toContain('resource=TOTAL')

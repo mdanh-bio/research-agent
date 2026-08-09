@@ -135,7 +135,7 @@ const LocationStep = ({
     <>
       <CardHeader className="gap-1 rounded-t-lg px-6 py-5">
         <CardTitle className="text-[15px] font-semibold">
-          Where should Open Science store your data?
+          Where should Research Agent store your data?
         </CardTitle>
         <CardDescription className="text-xs leading-5">
           Large files (artifacts, notebooks, environments) go here. Your settings and history always
@@ -177,7 +177,7 @@ const LocationStep = ({
             {chosenDataRoot ? (
               <p className="mt-2 text-xs text-text-100">
                 Your data will be stored in <span className="font-mono">{chosenDataRoot}</span>.
-                Open Science will restart to set this up.{' '}
+                Research Agent will restart to set this up.{' '}
                 <button
                   type="button"
                   onClick={handleResetLocation}
@@ -190,7 +190,7 @@ const LocationStep = ({
 
             {chosenKind === 'adopt' ? (
               <p className="mt-2 text-xs text-text-100">
-                This folder already contains Open Science data — it will be used as-is (nothing is
+                This folder already contains Research Agent data — it will be used as-is (nothing is
                 moved).
               </p>
             ) : null}
@@ -227,7 +227,7 @@ const LocationStep = ({
               Restart to set up your data?
             </AlertDialog.Title>
             <AlertDialog.Description className={dialogDescriptionClassName}>
-              Open Science will restart to set up your data at{' '}
+              Research Agent will restart to set up your data at{' '}
               <span className="font-mono">{chosenDataRoot}</span>.
             </AlertDialog.Description>
             <div className="mt-6 flex justify-end gap-2">

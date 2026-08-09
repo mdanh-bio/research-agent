@@ -252,8 +252,8 @@ const ComposerAgentControlsMenu = ({
       })}
       {profile === 'auto' && profileState?.autoReviewStrategy === 'conservative' ? (
         <div className="mx-1 mt-1 rounded-md bg-bg-200 px-2 py-1.5 text-[11px] leading-4 text-text-200">
-          This agent has no native auto mode. Open Science auto-approves only edits to files inside
-          the workspace — commands, network, and MCP tools still ask.
+          This agent has no native auto mode. Research Agent auto-approves only edits to files
+          inside the workspace — commands, network, and MCP tools still ask.
         </div>
       ) : null}
     </>

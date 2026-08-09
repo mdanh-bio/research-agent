@@ -1,4 +1,4 @@
 provider: generic
-url: https://statics.aipoch.com/open-science/app/stable
+url: https://github.com/mdanh-bio/research-agent/releases/download/disabled
 channel: latest
-updaterCacheDirName: open-science-updater
+updaterCacheDirName: research-agent-updater

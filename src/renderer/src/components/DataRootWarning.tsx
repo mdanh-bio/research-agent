@@ -11,7 +11,7 @@ const DataRootWarning = (): React.JSX.Element => (
   >
     <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
     <span>
-      Open Science manages this folder. Don&apos;t move, rename, or delete files inside it — doing
+      Research Agent manages this folder. Don&apos;t move, rename, or delete files inside it — doing
       so can break your projects and history.
     </span>
   </p>

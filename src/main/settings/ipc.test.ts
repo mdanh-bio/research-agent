@@ -179,7 +179,7 @@ const createFakeService = (): FakeSettingsService => ({
     ready: true,
     diagnostics: [],
     digest: 'digest',
-    suggestedFileName: 'open-science-connector-example.json'
+    suggestedFileName: 'research-agent-connector-example.json'
   }),
   buildCustomServerTemplateExport: vi.fn().mockResolvedValue({
     preview: {
@@ -187,7 +187,7 @@ const createFakeService = (): FakeSettingsService => ({
       ready: true,
       diagnostics: [],
       digest: 'digest',
-      suggestedFileName: 'open-science-connector-example.json'
+      suggestedFileName: 'research-agent-connector-example.json'
     },
     contents: '{"schemaVersion":1}\n'
   }),
@@ -362,7 +362,7 @@ describe('settings IPC handlers', () => {
       })
     ).resolves.toEqual({ saved: true })
     expect(connectorTemplateFiles.save).toHaveBeenCalledWith(
-      'open-science-connector-example.json',
+      'research-agent-connector-example.json',
       '{"schemaVersion":1}\n',
       ipcSender
     )
@@ -440,7 +440,7 @@ describe('settings IPC handlers', () => {
     service.logoutIsolatedCodex.mockResolvedValue({
       ok: false,
       category: 'unknown',
-      message: 'The Open Science Codex login could not be removed.'
+      message: 'The Research Agent Codex login could not be removed.'
     })
     const onActiveProviderChanged = vi.fn()
     registerTestSettingsIpcHandlers({

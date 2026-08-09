@@ -16,9 +16,12 @@ import {
   buildScpUploadArgs,
   inferMimeType,
   resolveDestFilename,
+  resolveScpBinary,
   runScpUpload,
   shellSingleQuote,
-  validateImportPath
+  validateImportPath,
+  validateTransferSourcePath,
+  validateUploadPath
 } from './scp-runner'
 
 import type { ScpRunner } from './scp-runner'
@@ -31,6 +34,22 @@ import type { ResolvedSshTarget } from './ssh-runner'
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }))
 
 vi.mock('node:child_process', () => ({ execFile: execFileMock }))
+
+// resolveSshTarget enables ControlMaster only after it can verify an app-owned, non-symlinked 0700
+// socket directory. Keep this integration test deterministic and side-effect free: a sandboxed test
+// process may legitimately be unable to create that directory under the real home folder, in which
+// case production correctly falls back to ordinary SSH and there are no mux args to propagate.
+// The security/fail-closed branches themselves are covered in ssh-runner.test.ts.
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  mkdirSync: vi.fn(),
+  chmodSync: vi.fn(),
+  lstatSync: vi.fn(() => ({
+    isDirectory: () => true,
+    isSymbolicLink: () => false,
+    uid: process.getuid?.() ?? 0
+  }))
+}))
 
 // Controllable ChildProcess double matching execFile's surface used by
 // SystemScpRunner: stderr is an EventEmitter, kill() records the signal.
@@ -54,6 +73,12 @@ describe('size constants', () => {
 
   it('SCP_UPLOAD_TIMEOUT_MS is 30 minutes', () => {
     expect(SCP_UPLOAD_TIMEOUT_MS).toBe(30 * 60 * 1000)
+  })
+})
+
+describe('resolveScpBinary', () => {
+  it.skipIf(process.platform === 'win32')('uses the fixed system binary on macOS', () => {
+    expect(resolveScpBinary()).toBe(process.platform === 'darwin' ? '/usr/bin/scp' : 'scp')
   })
 })
 
@@ -203,6 +228,35 @@ describe('buildScpArgs', () => {
     expect(remoteIdx).toBeLessThan(localIdx)
     expect(remoteIdx).toBeGreaterThan(-1)
     expect(localIdx).toBeGreaterThan(-1)
+    expect(args[remoteIdx - 1]).toBe('--')
+  })
+
+  it('rejects an option-like SSH alias even though it is a separate argv value', () => {
+    expect(() =>
+      buildScpArgs(
+        { ...target, host: '-oProxyCommand=malicious' },
+        '/remote/file.txt',
+        '/tmp/file.txt'
+      )
+    ).toThrow(/alias/i)
+  })
+
+  it('accepts the app-owned tilde source used by legacy job harvesting', () => {
+    expect(validateImportPath('~/.openscience/jobs/job-1/stdout')).toBe('outside_roots')
+    expect(validateTransferSourcePath('~/.openscience/jobs/job-1/stdout')).toBeUndefined()
+    expect(buildScpArgs(target, '~/.openscience/jobs/job-1/stdout', '/tmp/job-1/stdout')).toContain(
+      'biowulf.nih.gov:~/.openscience/jobs/job-1/stdout'
+    )
+  })
+
+  it.each([
+    '~/.openscience/jobs/$(touch owned)/stdout',
+    '~/.openscience/jobs/`touch owned`/stdout',
+    '~/.openscience/jobs/job-1/stdout;touch-owned',
+    '~/.openscience/jobs/job-*/stdout'
+  ])('rejects traditional-SCP metacharacters in transfer source %s', (remotePath) => {
+    expect(validateTransferSourcePath(remotePath)).toBe('outside_roots')
+    expect(() => buildScpArgs(target, remotePath, '/tmp/stdout')).toThrow(/not safe/)
   })
 })
 
@@ -335,6 +389,7 @@ describe('buildScpUploadArgs', () => {
     expect(localIdx).toBeGreaterThan(-1)
     expect(remoteIdx).toBeGreaterThan(-1)
     expect(localIdx).toBeLessThan(remoteIdx)
+    expect(args[localIdx - 1]).toBe('--')
   })
 
   it('includes remote host:path spec', () => {
@@ -363,6 +418,23 @@ describe('buildScpUploadArgs', () => {
     const args = buildScpUploadArgs(targetWithMux, '/local/a.csv', '/remote/a.csv')
     expect(args).toContain('ControlMaster=auto')
     expect(args).toContain('ControlPersist=60')
+  })
+
+  it.each([
+    '/remote/$(touch owned).csv',
+    '/remote/`touch owned`.csv',
+    '/remote/a.csv;touch-owned',
+    '/remote/*.csv'
+  ])('rejects traditional-SCP metacharacters in upload destination %s', (remotePath) => {
+    expect(validateUploadPath(remotePath)).toBe('outside_roots')
+    expect(() => buildScpUploadArgs(target, '/local/file.txt', remotePath)).toThrow(/not safe/)
+  })
+
+  it('accepts an app-owned tilde upload destination for the legacy direct runner', () => {
+    expect(validateUploadPath('~/.openscience/jobs/job-1/input.csv')).toBeUndefined()
+    expect(
+      buildScpUploadArgs(target, '/local/input.csv', '~/.openscience/jobs/job-1/input.csv')
+    ).toContain('biowulf.nih.gov:~/.openscience/jobs/job-1/input.csv')
   })
 })
 

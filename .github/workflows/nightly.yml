@@ -1,14 +1,11 @@
 name: Nightly
 
-# Batch main into one build per hour. A newer scheduled build may supersede an older build, while
-# publication is delegated to nightly-publish.yml and is never cancelled once it starts.
+# Private Research Agent updates are manual during Milestone 0. This inherited workflow is retained
+# as an explicit build diagnostic. It has no schedule, tag trigger, or downstream publisher.
 on:
-  schedule:
-    - cron: '17 * * * *'
   workflow_dispatch:
 
-# Build and publication preparation run without write access. Only the separate workflow_run
-# publisher receives contents:write, and it never checks out or executes the triggering revision.
+# Build and verification-metadata preparation run without repository write access.
 permissions:
   actions: read
   contents: read
@@ -41,15 +38,13 @@ jobs:
     needs: plan
     if: needs.plan.outputs.should_build == 'true'
     uses: ./.github/workflows/build.yml
-    secrets: inherit
     with:
       nightly: true
 
-  # Aggregate and checksum on the low-privilege build run. A manual Nightly stops here, making this
-  # the focused no-side-effect dry-run; a successful schedule hands these prepared files to the
-  # separate publisher as artifacts, never as executable code.
+  # Aggregate and checksum on the low-privilege build run. A manual Nightly stops here. The separate
+  # nightly artifact workflow can read these files only when an operator supplies this run's ID.
   prepare:
-    name: Prepare nightly publish artifact
+    name: Prepare nightly verification metadata
     needs: [plan, build]
     if: needs.build.result == 'success'
     runs-on: ubuntu-latest

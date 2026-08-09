@@ -79,9 +79,10 @@ const isRetryableFileReplacementError = (error: unknown): boolean =>
   'code' in error &&
   ['EPERM', 'EACCES', 'EBUSY'].includes(String((error as { code?: unknown }).code))
 
-// Production storage lives under ~/.open-science; dev builds use an isolated sibling directory.
-export const PROD_SESSION_DIR_NAME = '.open-science'
-export const DEV_SESSION_DIR_NAME = '.open-science-project'
+// Research Agent never shares mutable configuration with the upstream Open Science application.
+// Development builds use a second isolated root so they cannot alter a packaged installation.
+export const PROD_SESSION_DIR_NAME = '.research-agent'
+export const DEV_SESSION_DIR_NAME = '.research-agent-project'
 
 // Builds the app-owned session directory in the user's home folder. Kept pure (no electron) so it
 // stays unit-testable; the dev/prod choice is applied by the main-only resolveStorageRoot helper.

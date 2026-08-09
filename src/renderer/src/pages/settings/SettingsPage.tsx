@@ -12,6 +12,7 @@ import {
   Menu,
   Minimize2,
   MonitorSmartphone,
+  Route,
   ScrollText,
   Settings2,
   TerminalSquare,
@@ -38,6 +39,7 @@ import { selectFrameworkApiEndpoints, useSettingsStore } from '@/stores/settings
 import type { SettingsPanelId } from './settings-navigation'
 import { useSpecialistStore } from '@/stores/specialist-store'
 import { AgentPanel } from './AgentPanel'
+import { RoutingPanel } from './RoutingPanel'
 import { ProvidersPanel } from './ProvidersPanel'
 import { GeneralPanel } from './GeneralPanel'
 import { NetworkPanel } from './NetworkPanel'
@@ -153,6 +155,7 @@ const SETTINGS_GROUPS: ReadonlyArray<SettingsGroup> = [
     label: 'Workspace',
     panels: [
       { id: 'model', label: 'Model', Icon: Brain },
+      { id: 'routing', label: 'Routing', Icon: Route },
       { id: 'agent', label: 'Agent', Icon: Bot },
       { id: 'permissions', label: 'Permissions', Icon: LockKeyhole },
       { id: 'runtimes', label: 'Runtimes', Icon: TerminalSquare },
@@ -1044,6 +1047,8 @@ const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(function 
                   <NetworkPanel view={networkView} onNavigate={navigateNetwork} />
                 ) : activePanel === 'general' ? (
                   <GeneralPanel />
+                ) : activePanel === 'routing' ? (
+                  <RoutingPanel />
                 ) : activePanel === 'remote-control' ? (
                   <RemoteControlPanel />
                 ) : activePanel === 'agent' ? (

@@ -1,6 +1,8 @@
-# @aipoch/open-science
+# @mdanh-bio/research-agent
 
-Node.js SDK and command-line client for an Open Science daemon running on the local machine.
+Private Node.js SDK and command-line client for Research Agent running on the local machine. This
+package is distributed with the private Research Agent repository and is not published to the public
+npm registry.
 
 ## Documentation
 
@@ -9,7 +11,7 @@ Node.js SDK and command-line client for an Open Science daemon running on the lo
 ## SDK quick start
 
 ```js
-import { connectToOpenScience } from '@aipoch/open-science'
+import { connectToOpenScience } from '@mdanh-bio/research-agent'
 
 const client = await connectToOpenScience()
 const run = await client.startRun({
@@ -58,5 +60,5 @@ const cancelled = await client.cancelRun(run.id)
 console.log(cancelled.status) // cancelled
 ```
 
-The client discovers the local daemon and reads its authentication token from the Open Science config
+The client discovers the local daemon and reads its authentication token from the Research Agent config
 directory. Tokens are sent in request headers and are never included in normal command output.

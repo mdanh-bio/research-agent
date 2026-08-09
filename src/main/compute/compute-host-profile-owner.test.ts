@@ -213,7 +213,7 @@ describe('ComputeHostProfileOwner.probe', () => {
     expect(updateProbeResult).toHaveBeenCalledWith(
       'ssh:biowulf',
       expect.objectContaining({ ok: false }),
-      'direct_ssh'
+      'unclassified'
     )
     expect(updateScratchRoot).not.toHaveBeenCalled()
   })
@@ -235,7 +235,7 @@ describe('ComputeHostProfileOwner.probe', () => {
     expect(updateProbeResult).toHaveBeenCalledWith(
       'ssh:biowulf',
       expect.objectContaining({ ok: false }),
-      'direct_ssh'
+      'unclassified'
     )
   })
 
@@ -268,6 +268,49 @@ describe('ComputeHostProfileOwner.probe', () => {
       'ssh:biowulf',
       expect.objectContaining({ ok: true }),
       'direct_ssh'
+    )
+  })
+
+  it('fails closed when a zero-exit probe omits scheduler evidence', async () => {
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: 'os=Linux\ncpus=64\nmem_mib=256000',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+    const { repo, updateProbeResult } = makeRepo()
+
+    const result = await new ComputeHostProfileOwner(runner, repo).probe('ssh:biowulf')
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorTail: 'Probe did not return a complete scheduler classification.'
+    })
+    expect(updateProbeResult).toHaveBeenCalledWith(
+      'ssh:biowulf',
+      expect.objectContaining({ ok: false }),
+      'unclassified'
+    )
+  })
+
+  it('fails closed when a probe command exits non-zero with scheduler-looking output', async () => {
+    const runner = makeFakeRunner({
+      exitCode: 1,
+      stdout: 'sbatch=no\nqsub=no\nbsub=no',
+      stderr: 'probe helper failed',
+      truncated: false,
+      timedOut: false
+    })
+    const { repo, updateProbeResult } = makeRepo()
+
+    const result = await new ComputeHostProfileOwner(runner, repo).probe('ssh:biowulf')
+
+    expect(result).toMatchObject({ ok: false, exitCode: 1 })
+    expect(updateProbeResult).toHaveBeenCalledWith(
+      'ssh:biowulf',
+      expect.objectContaining({ ok: false }),
+      'unclassified'
     )
   })
 

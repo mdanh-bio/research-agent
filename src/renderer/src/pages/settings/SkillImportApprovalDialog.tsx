@@ -98,7 +98,7 @@ const SkillImportApprovalRequestDialog = ({
                   <span className="break-all font-medium text-foreground">
                     {request.source.label}
                   </span>
-                  . Review and choose exactly what Open Science may install.
+                  . Review and choose exactly what Research Agent may install.
                 </Dialog.Description>
               </div>
             </div>

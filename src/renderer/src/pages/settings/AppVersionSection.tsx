@@ -24,6 +24,8 @@ const AppVersionSection = (): React.JSX.Element => {
     switch (status.state) {
       case 'checking':
         return 'Checking for updates…'
+      case 'disabled':
+        return 'Automatic updates are disabled for this private build.'
       case 'available':
         return `New version ${status.latest} is available`
       case 'downloading':
@@ -57,18 +59,20 @@ const AppVersionSection = (): React.JSX.Element => {
         controlClassName="w-auto justify-self-end"
       >
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void check()}
-            disabled={isChecking}
-          >
-            <RefreshCw
-              className={isChecking ? 'size-4 animate-spin' : 'size-4'}
-              aria-hidden="true"
-            />
-            {isChecking ? 'Checking…' : 'Check now'}
-          </Button>
+          {status.state !== 'disabled' ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void check()}
+              disabled={isChecking}
+            >
+              <RefreshCw
+                className={isChecking ? 'size-4 animate-spin' : 'size-4'}
+                aria-hidden="true"
+              />
+              {isChecking ? 'Checking…' : 'Check now'}
+            </Button>
+          ) : null}
 
           {hasUpdate ? (
             <Button type="button" onClick={() => openDialog()}>

@@ -1079,6 +1079,14 @@ run <- base::local({
     for (name in c("bmp", "jpeg", "png", "tiff", "pdf", "postscript", "svg", "cairo_pdf", "cairo_ps")) {
       install_capture_binding_wrapper("grDevices", name, make_file_device_wrapper)
     }
+    # ggplot2 prefers ragg devices when the package is installed. Wrap those exported device
+    # functions too so ggsave() output is replayed into the request-owned inline PNG capture just
+    # like the equivalent grDevices device, while the saved file remains an ordinary working file.
+    if (requireNamespace("ragg", quietly = TRUE)) {
+      for (name in c("agg_bmp", "agg_jpeg", "agg_png", "agg_ppm", "agg_tiff")) {
+        install_capture_binding_wrapper("ragg", name, make_file_device_wrapper)
+      }
+    }
   }
 
   install_capture_wrappers()

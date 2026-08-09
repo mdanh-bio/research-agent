@@ -326,7 +326,7 @@ const ProviderStep = ({
       <CardHeader className="gap-1 rounded-t-lg px-6 py-5">
         <CardTitle className="text-[15px] font-semibold">Connect a model</CardTitle>
         <CardDescription className="text-xs leading-5">
-          Choose the provider Open Science should use for new research sessions.
+          Choose the provider Research Agent should use for new research sessions.
         </CardDescription>
       </CardHeader>
       <Separator className="bg-border-200" />

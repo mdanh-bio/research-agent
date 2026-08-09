@@ -11,18 +11,18 @@ import { pathToFileURL } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
-const APP_EXECUTABLE = 'open-science.exe'
+const APP_EXECUTABLE = 'research-agent.exe'
 const ARTIFACT_MCP_SERVER_ARG = '--open-science-artifact-mcp'
 const NOTEBOOK_MCP_SERVER_ARG = '--open-science-notebook-mcp'
-const CONFIG_DIRECTORY = '.open-science'
+const CONFIG_DIRECTORY = '.research-agent'
 const PROCESS_TIMEOUT_MS = 120_000
 const STARTUP_TIMEOUT_MS = 60_000
 const SHUTDOWN_TIMEOUT_MS = 60_000
 const HTTP_REQUEST_TIMEOUT_MS = 15_000
 const TERMINATION_TIMEOUT_MS = 10_000
 const MCP_REQUEST_TIMEOUT_MS = 30_000
-const SMOKE_ROOT_PREFIX = 'open-science-installer-smoke-'
-const RPC_SMOKE_ROOT_PREFIX = 'open-science-rpc-smoke-'
+const SMOKE_ROOT_PREFIX = 'research-agent-installer-smoke-'
+const RPC_SMOKE_ROOT_PREFIX = 'research-agent-rpc-smoke-'
 const UPGRADE_SENTINEL_PREFIX = 'installer-smoke-upgrade-sentinel-'
 const UPGRADE_SENTINEL_CONTENT = 'previous-version-profile-preserved\n'
 const RPC_SMOKE_CONTENT = 'windows-rpc-smoke\n'
@@ -54,7 +54,7 @@ const findSetupInstaller = async (directory) => {
 }
 
 const installerVersion = (installer) => {
-  const match = basename(installer).match(/^aipoch-open-science-(.+)-win-x64-setup\.exe$/i)
+  const match = basename(installer).match(/^research-agent-(.+)-win-x64-setup\.exe$/i)
   if (!match) throw new Error(`Cannot derive the app version from installer: ${installer}`)
   return match[1]
 }
@@ -96,7 +96,7 @@ const requestPackagedAppShutdown = async (endpoint, auth, fetchImpl = fetchWithT
 
 const parsePackagedAppEndpoint = (output) => {
   const match = output.match(
-    /Open Science Web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/
+    /Research Agent Web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/
   )
   if (!match) return undefined
 
@@ -115,7 +115,7 @@ const readPackagedAppConfigRoot = async (
   { auth, legacyConfigRoots = [], readToken = readFile } = {}
 ) => {
   if (
-    bootstrap.appName !== 'Open Science' ||
+    bootstrap.appName !== 'Research Agent' ||
     bootstrap.appVersion !== expectedVersion ||
     bootstrap.platform !== 'win32'
   ) {
@@ -774,7 +774,11 @@ const launchForProcessLock = async ({ installDirectory, expectedVersion, env }) 
     if (!response.ok)
       throw new Error(`Process-lock app bootstrap returned HTTP ${response.status}.`)
     const bootstrap = await response.json()
-    if (bootstrap.appVersion !== expectedVersion || bootstrap.platform !== 'win32') {
+    if (
+      bootstrap.appName !== 'Research Agent' ||
+      bootstrap.appVersion !== expectedVersion ||
+      bootstrap.platform !== 'win32'
+    ) {
       throw new Error(`Unexpected process-lock app bootstrap: ${JSON.stringify(bootstrap)}`)
     }
     return { child, exit, output }

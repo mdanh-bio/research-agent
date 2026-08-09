@@ -20,7 +20,7 @@ type MockStorageApi = {
 const installApi = (overrides: Partial<MockStorageApi> = {}): MockStorageApi => {
   const api: MockStorageApi = {
     pickDirectory: vi.fn().mockResolvedValue(null),
-    // Default: resolving the move destination (from defaultParent) yields the visible OpenScience path.
+    // Default: resolving the move destination (from defaultParent) yields the visible ResearchAgent path.
     inspectDataRoot: vi.fn().mockResolvedValue({ kind: 'move', dataRoot: '/home/u/OpenScience' }),
     dismissLegacyMovePrompt: vi.fn().mockResolvedValue(undefined),
     detectActive: vi.fn().mockResolvedValue([]),
@@ -86,7 +86,7 @@ describe('LegacyDataMoveDialog', () => {
     expect(dialog?.className).toContain('bg-card')
     expect(dialog?.className).toContain('shadow-dialog')
     expect(dialog?.className).toContain('data-[state=open]:zoom-in-95')
-    expect(document.body.textContent).toContain('Move to OpenScience')
+    expect(document.body.textContent).toContain('Move to ResearchAgent')
     expect(document.body.textContent).toContain('Choose another folder')
     expect(document.body.textContent).toContain('Keep it in the current folder')
   })
@@ -98,7 +98,7 @@ describe('LegacyDataMoveDialog', () => {
     expect(document.body.textContent).toContain('/home/u/.open-science')
     expect(document.body.textContent).toContain('/home/u/OpenScience')
     for (const label of [
-      /Move to OpenScience/,
+      /Move to ResearchAgent/,
       /Choose another folder/,
       /Keep it in the current/
     ]) {
@@ -124,12 +124,12 @@ describe('LegacyDataMoveDialog', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
-  it('"Move to OpenScience" hands off to the migration flow (detects sessions first)', async () => {
+  it('"Move to ResearchAgent" hands off to the migration flow (detects sessions first)', async () => {
     const api = installApi()
     await renderDialog()
 
     await act(async () => {
-      clickButton(/Move to OpenScience/)
+      clickButton(/Move to ResearchAgent/)
       await Promise.resolve()
     })
 

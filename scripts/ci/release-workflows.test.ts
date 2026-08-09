@@ -19,7 +19,9 @@ type Job = {
   env?: Record<string, string>
   if?: string
   needs?: string | string[]
+  permissions?: Record<string, string>
   'runs-on'?: string
+  secrets?: unknown
   steps?: Step[]
   strategy?: { matrix?: { shard?: number[] } }
   uses?: string
@@ -35,6 +37,9 @@ type Workflow = {
 
 const workflow = (name: string): Workflow =>
   load(readFileSync(join(process.cwd(), '.github/workflows', name), 'utf8')) as Workflow
+
+const workflowText = (name: string): string =>
+  readFileSync(join(process.cwd(), '.github/workflows', name), 'utf8')
 
 const step = (job: Job, name: string): Step => {
   const result = job.steps?.find((candidate) => candidate.name === name)
@@ -52,7 +57,7 @@ describe('release and scheduled workflow topology', () => {
     expect(test.run).toContain('--maxWorkers=1')
   })
 
-  it('runs reusable verification beside native builds while callers remain fail closed', () => {
+  it('runs reusable verification beside native builds while private callers remain fail closed', () => {
     const build = workflow('build.yml').jobs.build
     const nightly = workflow('nightly.yml')
     const release = workflow('release.yml')
@@ -60,17 +65,21 @@ describe('release and scheduled workflow topology', () => {
     expect(build.needs).toBe('setup')
     expect(build.if).toBe("${{ needs.setup.result == 'success' }}")
     expect(nightly.jobs.prepare.needs).toEqual(['plan', 'build'])
-    expect(release.jobs.publish.needs).toEqual(['build', 'notarize-mac'])
-    expect(release.jobs['notarize-mac'].needs).toBe('build')
+    expect(Object.keys(release.jobs)).toEqual(['build'])
+    expect(release.jobs.build).toMatchObject({
+      uses: './.github/workflows/build.yml',
+      with: { mac_only: true }
+    })
+    expect(release.jobs.build.secrets).toBeUndefined()
   })
 
-  it('batches Nightly hourly and prepares publication without write access', () => {
+  it('keeps private Nightly manual and prepares diagnostics without write access', () => {
     const nightly = workflow('nightly.yml')
     const schedule = nightly.on?.schedule as Array<{ cron: string }>
     const prepare = nightly.jobs.prepare
 
     expect(nightly.on).not.toHaveProperty('push')
-    expect(schedule).toEqual([{ cron: '17 * * * *' }])
+    expect(schedule).toBeUndefined()
     expect(nightly.on).toHaveProperty('workflow_dispatch')
     expect(nightly.permissions).toEqual({ actions: 'read', contents: 'read' })
     expect(nightly.concurrency).toEqual({
@@ -83,6 +92,7 @@ describe('release and scheduled workflow topology', () => {
       uses: './.github/workflows/build.yml',
       with: { nightly: true }
     })
+    expect(nightly.jobs.build.secrets).toBeUndefined()
     expect(step(nightly.jobs.plan, 'Compare main with the rolling nightly tag').run).toContain(
       'repos/$GITHUB_REPOSITORY/commits/nightly'
     )
@@ -103,77 +113,85 @@ describe('release and scheduled workflow topology', () => {
     })
   })
 
-  it('publishes prepared scheduled artifacts without executing triggering-run code', () => {
-    const publishWorkflow = workflow('nightly-publish.yml')
-    const plan = publishWorkflow.jobs.plan
-    const publish = publishWorkflow.jobs.publish
-    const download = step(publish, 'Download prepared nightly artifacts')
-    const reset = step(publish, 'Reset nightly release')
-    const release = step(publish, 'Publish nightly pre-release')
-    const workflowRun = publishWorkflow.on?.workflow_run as {
-      branches: string[]
-      types: string[]
-      workflows: string[]
-    }
+  it('verifies selected nightly artifacts without a publication trigger or write scope', () => {
+    const verifyWorkflow = workflow('nightly-publish.yml')
+    const verify = verifyWorkflow.jobs.verify
+    const download = step(verify, 'Download prepared nightly artifacts')
 
-    expect(workflowRun).toEqual({
-      workflows: ['Nightly'],
-      types: ['completed'],
-      branches: ['main']
+    expect(verifyWorkflow.on).toEqual({
+      workflow_dispatch: {
+        inputs: {
+          source_run_id: {
+            description: 'Successful Nightly workflow run ID to verify',
+            required: true,
+            type: 'string'
+          }
+        }
+      }
     })
-    expect(publishWorkflow.on).not.toHaveProperty('workflow_call')
-    expect(publishWorkflow.concurrency).toEqual({
-      group: 'nightly-publish',
-      'cancel-in-progress': false
+    expect(verifyWorkflow.permissions).toEqual({ actions: 'read', contents: 'read' })
+    expect(verifyWorkflow.concurrency).toEqual({
+      group: 'nightly-artifact-verification-${{ inputs.source_run_id }}',
+      'cancel-in-progress': true
     })
-    expect(plan.if).toContain("github.event.workflow_run.conclusion == 'success'")
-    expect(plan.if).toContain("github.event.workflow_run.event == 'schedule'")
-    expect(plan.if).toContain("github.event.workflow_run.head_branch == 'main'")
-    const publicationPlan = step(plan, 'Check for an unpublished build').run
-    expect(publicationPlan).toContain('repos/$GITHUB_REPOSITORY/commits/nightly')
-    expect(publicationPlan).toContain('repos/$GITHUB_REPOSITORY/compare/$published...$SOURCE_SHA')
-    expect(publicationPlan).toContain("grep -Eq 'HTTP (404|422)'")
-    expect(publicationPlan).toContain('cat "$error_file" >&2')
-    expect(publicationPlan).toContain('ahead)')
-    expect(publicationPlan).toContain('identical|behind)')
-    expect(publicationPlan).toContain('skipping stale publication')
-    expect(publicationPlan).toContain('Cannot safely advance nightly')
-    expect(publish).toMatchObject({
-      needs: 'plan',
-      if: "needs.plan.outputs.should_publish == 'true'"
-    })
+    expect(Object.keys(verifyWorkflow.jobs)).toEqual(['verify'])
     expect(download.with).toMatchObject({
-      'github-token': '${{ secrets.GITHUB_TOKEN }}',
-      'run-id': '${{ env.SOURCE_RUN_ID }}',
+      'github-token': '${{ github.token }}',
+      'run-id': '${{ inputs.source_run_id }}',
       'merge-multiple': true
     })
-    expect(step(publish, 'Verify prepared nightly metadata').run).toContain(
-      'test -s artifacts/RELEASE-CERTIFICATION.json'
-    )
-    expect(publish.steps?.some(({ uses }) => uses?.startsWith('actions/checkout@'))).toBe(false)
-    expect(
-      publish.steps?.some(({ run }) => run?.includes('release-certification-evidence.mjs'))
-    ).toBe(false)
-    expect(reset.if).toBeUndefined()
-    expect(release.if).toBeUndefined()
+    const checksum = step(verify, 'Verify prepared nightly metadata and checksums')
+    expect(checksum.run).toContain('test -s artifacts/RELEASE-CERTIFICATION.json')
+    expect(checksum.run).toContain('sha256sum --check SHA256SUMS.txt')
+    expect(verify.steps?.some(({ uses }) => uses?.startsWith('actions/checkout@'))).toBe(false)
   })
 
-  it('dispatches the advisory Windows upgrade drill only after stable publication', () => {
-    const releaseWorkflow = workflow('release.yml')
-    const publishSteps = releaseWorkflow.jobs.publish.steps ?? []
-    const publishIndex = publishSteps.findIndex(({ name }) => name === 'Publish GitHub Release')
-    const dispatchIndex = publishSteps.findIndex(
-      ({ name }) => name === 'Dispatch advisory Windows upgrade smoke'
-    )
+  it('keeps every inherited publication workflow manual, read-only, and credential-free', () => {
+    for (const name of [
+      'release.yml',
+      'nightly.yml',
+      'nightly-publish.yml',
+      'mirror-to-website.yml',
+      'stage-runtime-bundle.yml',
+      'notarize-dryrun.yml',
+      'notarize-mac.yml'
+    ]) {
+      const candidate = workflow(name)
+      const text = workflowText(name)
+      const permissionSets = [candidate.permissions]
+        .concat(Object.values(candidate.jobs).map((job) => job.permissions))
+        .filter((permissions): permissions is Record<string, string> => permissions !== undefined)
 
-    expect(releaseWorkflow.jobs).not.toHaveProperty('windows-upgrade-smoke')
-    expect(dispatchIndex).toBeGreaterThan(publishIndex)
-    expect(publishSteps[dispatchIndex]).toMatchObject({
-      'continue-on-error': true,
-      env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+      for (const permissions of permissionSets) {
+        expect(Object.values(permissions), name).not.toContain('write')
+      }
+      expect(text, name).not.toMatch(/softprops\/action-gh-release/i)
+      expect(text, name).not.toMatch(/actions\/attest-build-provenance/i)
+      expect(text, name).not.toMatch(/\bgh\s+release\s+(?:create|delete|upload)\b/i)
+      expect(text, name).not.toMatch(/\baws\s+s3(?:api)?\b/i)
+      expect(text, name).not.toMatch(/S3_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET)/)
+      expect(text, name).not.toMatch(/event_type=windows-upgrade-smoke/)
+      expect(text, name).not.toMatch(/notarytool\s+submit/)
+    }
+  })
+
+  it('retains Apple-Silicon runtime staging only as a one-day verification artifact', () => {
+    const runtime = workflow('stage-runtime-bundle.yml')
+    const verify = runtime.jobs.verify
+
+    expect(runtime.on).toHaveProperty('workflow_dispatch')
+    expect(runtime.permissions).toEqual({ contents: 'read' })
+    expect(verify['runs-on']).toBe('macos-14')
+    expect(step(verify, 'Fetch pinned Apple-Silicon micromamba').run).toContain(
+      'fetch-micromamba.mjs osx-arm64'
+    )
+    expect(step(verify, 'Stage default environments').env).toEqual({
+      OS_STAGE_PLATFORM: 'osx-arm64'
     })
-    expect(publishSteps[dispatchIndex].run).toContain('event_type=windows-upgrade-smoke')
-    expect(publishSteps[dispatchIndex].run).toContain('client_payload[tag]=$GITHUB_REF_NAME')
+    expect(step(verify, 'Retain verification bundle').with).toMatchObject({
+      'retention-days': 1,
+      'if-no-files-found': 'error'
+    })
   })
 
   it('runs Windows upgrade smoke independently against published release assets', () => {
@@ -198,6 +216,10 @@ describe('release and scheduled workflow topology', () => {
       'nightly.yml',
       'nightly-publish.yml',
       'release.yml',
+      'mirror-to-website.yml',
+      'stage-runtime-bundle.yml',
+      'notarize-dryrun.yml',
+      'notarize-mac.yml',
       'windows-full-test.yml',
       'windows-upgrade-smoke.yml'
     ]) {

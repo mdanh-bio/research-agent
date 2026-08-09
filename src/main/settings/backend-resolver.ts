@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { z } from 'zod'
 
+import type { ModelTarget } from '../../shared/model-routing'
 import type { ReasoningEffort } from '../../shared/settings'
 import {
   CODEX_ISOLATED_PROVIDER_ID,
@@ -244,7 +245,7 @@ const CODEX_BRIDGE_NOTEBOOK_TOOLS: ResponsesBridgeNamespacedTool[] = NOTEBOOK_RP
     name: tool.name,
     description:
       tool.name === 'notebook_execute'
-        ? `${tool.description} For Open Science data connectors, the Python code MUST call host.mcp(server, method, arguments). Never use requests, urllib, httpx, curl, or a raw upstream API for connector data; those bypass app permissions, credentials, and rate limits. Codex MCP resource-list tools are not connector discovery.`
+        ? `${tool.description} For Research Agent data connectors, the Python code MUST call host.mcp(server, method, arguments). Never use requests, urllib, httpx, curl, or a raw upstream API for connector data; those bypass app permissions, credentials, and rate limits. Codex MCP resource-list tools are not connector discovery.`
         : tool.description,
     parameters: z.toJSONSchema(z.object(tool.inputSchema), {
       target: 'draft-7'
@@ -260,7 +261,7 @@ const CODEX_BRIDGE_ARTIFACT_TOOLS: ResponsesBridgeNamespacedTool[] = [
     namespace: CODEX_ARTIFACT_TOOL_NAMESPACE,
     name: 'write_artifact_file',
     description:
-      'Attach a generated image, chart, report, data export, or archive to the current Open Science response. The file must already exist before using a localPath source.',
+      'Attach a generated image, chart, report, data export, or archive to the current Research Agent response. The file must already exist before using a localPath source.',
     parameters: z.toJSONSchema(z.object(writeArtifactFileToolSchema), {
       target: 'draft-7'
     }) as ResponsesBridgeNamespacedTool['parameters']
@@ -496,6 +497,24 @@ export class AgentBackendResolver {
       target.providerId,
       modelSelection,
       target.reasoningEffort,
+      context
+    )
+  }
+
+  // Resolves one policy-selected target through the same provider/runtime validation as an explicit
+  // target. This method does not persist the target or change the configured active conversation
+  // route; the caller owns the returned backend generation and must opt a new run into using it.
+  async resolveRoutedTarget(
+    target: ModelTarget,
+    context: AgentBackendResolutionContext = {}
+  ): Promise<ResolvedAgentBackend> {
+    return this.resolveExplicitTarget(
+      Object.freeze({
+        frameworkId: target.backend,
+        providerId: target.providerId,
+        model: Object.freeze({ kind: 'required' as const, id: target.model }),
+        reasoningEffort: target.reasoningEffort
+      }),
       context
     )
   }

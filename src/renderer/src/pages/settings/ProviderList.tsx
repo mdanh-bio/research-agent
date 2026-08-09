@@ -270,9 +270,9 @@ const ProviderList = ({
                   </div>
                   <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                     {codexSubscriptionType === 'codex-shared' ? (
-                      <div>Authentication imported into Open Science</div>
+                      <div>Authentication imported into Research Agent</div>
                     ) : codexSubscriptionType === 'codex-isolated' ? (
-                      <div>Codex login stored separately by Open Science</div>
+                      <div>Codex login stored separately by Research Agent</div>
                     ) : provider.type === 'claude-isolated' && isClaudeIsolatedLoginPending ? (
                       // Browser sign-in in flight. `claude setup-token` opens the browser itself and
                       // waits on a localhost callback; when the browser fails to open it stays silent
@@ -439,7 +439,7 @@ const ProviderList = ({
                   ) : null}
                   {provider.type === 'claude-shared' && isVerified ? (
                     <SettingsIconAction
-                      label="Disconnect from Open Science"
+                      label="Disconnect from Research Agent"
                       icon={LogOut}
                       onClick={() => onLogoutSharedClaude?.()}
                       className="border border-border text-foreground"

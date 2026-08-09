@@ -198,7 +198,7 @@ describe('resolveMicromamba', () => {
   it('falls back to the storage-root runtime binary under home', () => {
     const home = mkdtempSync(join(tmpdir(), 'os-home-'))
     const name = process.platform === 'win32' ? 'micromamba.exe' : 'micromamba'
-    const runtimeDir = join(home, '.open-science', 'runtime', 'micromamba', 'bin')
+    const runtimeDir = join(home, '.research-agent', 'runtime', 'micromamba', 'bin')
     mkdirSync(runtimeDir, { recursive: true })
     writeFileSync(join(runtimeDir, name), 'x')
     expect(resolveMicromamba({ env: {}, resourcesPath: '/no/such/dir', home })).toBe(

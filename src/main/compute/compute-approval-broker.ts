@@ -1,4 +1,5 @@
 import type { ComputeApprovalRequest, ComputeApprovalDecision } from '../../shared/compute'
+import { normalizeComputeApprovalDecision } from '../../shared/compute'
 import type { ComputePermissionGrantAdapter } from './permission-grant-adapter'
 
 // Re-export so callers that import from this module don't have to reference shared/compute directly.
@@ -134,6 +135,13 @@ export class ComputeApprovalBroker {
     const providerId = info.provider_id
     const providerGeneration = this.providerGenerations.get(providerId) ?? 0
 
+    // Job submission is always single-use: do not resolve any remembered grant, do not persist the
+    // renderer's selected scope, and normalize every allow response to `once`. Keeping this inside
+    // the broker makes the invariant authoritative even if a future caller forgets the UI flag.
+    if (operation === 'submit_job') {
+      return this.requestSingleUseOperation(info, ctx, providerGeneration)
+    }
+
     if (this.deps.permissionGrants) {
       const durableScope = await this.deps.permissionGrants.resolve({
         sessionId,
@@ -212,9 +220,34 @@ export class ComputeApprovalBroker {
     return decision
   }
 
+  private async requestSingleUseOperation(
+    info: Omit<ComputeApprovalRequest, 'id'>,
+    ctx: ComputeApprovalContext,
+    providerGeneration: number
+  ): Promise<ComputeApprovalDecision> {
+    const providerId = info.provider_id
+    if (
+      this.invalidatingProviders.has(providerId) ||
+      !(await this.isProviderCurrent(providerId, ctx.ownerId, providerGeneration))
+    ) {
+      return 'deny'
+    }
+
+    const decision = await this.request({ ...info, single_use: true }, ctx)
+    if (decision === 'deny') return 'deny'
+    if (
+      this.invalidatingProviders.has(providerId) ||
+      !(await this.isProviderCurrent(providerId, ctx.ownerId, providerGeneration))
+    ) {
+      return 'deny'
+    }
+    return 'once'
+  }
+
   // Called from the IPC handler when the renderer responds. Unknown ids are ignored.
-  respond(id: string, decision: ComputeApprovalDecision): void {
-    this.settle(id, decision, decision === 'deny' ? 'rejected' : 'resolved')
+  respond(id: string, decision: unknown): void {
+    const normalized = normalizeComputeApprovalDecision(decision)
+    this.settle(id, normalized, normalized === 'deny' ? 'rejected' : 'resolved')
   }
 
   // Host deletion begins by advancing its generation and denying every approval card that was

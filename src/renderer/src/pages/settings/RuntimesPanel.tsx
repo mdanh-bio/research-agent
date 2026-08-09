@@ -436,7 +436,7 @@ const RuntimesPanel = ({ title, description }: RuntimesPanelProps): React.JSX.El
             <SettingsRow
               className="min-h-0 py-0"
               label="Allow package install"
-              description="Lets Open Science install packages into this environment. Installs go to your own environment, not the app-managed storage."
+              description="Lets Research Agent install packages into this environment. Installs go to your own environment, not the app-managed storage."
             >
               <div className="flex justify-end">
                 <SettingsToggle

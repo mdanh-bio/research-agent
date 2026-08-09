@@ -124,7 +124,7 @@ const DataRootMissingDialog = ({
               </Button>
             </AlertDialog.Cancel>
             <p className="text-xs text-muted-foreground">
-              Open Science will recreate the folder as you use it. Files from the old location
+              Research Agent will recreate the folder as you use it. Files from the old location
               won&apos;t be available until it&apos;s reconnected.
             </p>
           </div>

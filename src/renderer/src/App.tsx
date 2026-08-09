@@ -108,7 +108,7 @@ const App = (): React.JSX.Element | null => {
   // §20.4: settings.dataRoot configured but the folder is gone (deleted or an unmounted drive).
   const [missingDataRoot, setMissingDataRoot] = useState<string | undefined>(undefined)
   // Legacy (pre-§20) install whose data still lives in the hidden config root: offer the one-time
-  // "move it into the visible OpenScience folder" prompt. Null once absent/answered.
+  // "move it into the visible ResearchAgent folder" prompt. Null once absent/answered.
   const [legacyMove, setLegacyMove] = useState<
     { currentDataRoot: string; defaultParent: string } | undefined
   >(undefined)

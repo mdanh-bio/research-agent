@@ -83,7 +83,7 @@ describe('specialist store package export', () => {
       specialistId: 'research-synth',
       name: 'Research Synthesizer',
       version: '1.3.0',
-      fileName: 'open-science-specialist-research-synthesizer-v1.3.0.zip',
+      fileName: 'research-agent-specialist-research-synthesizer-v1.3.0.zip',
       expectedRevision: 3,
       skills: [
         {
@@ -127,7 +127,7 @@ describe('specialist store package export', () => {
       specialistId: 'research-synth',
       name: 'Research Synthesizer',
       version: '1.3.0',
-      fileName: 'open-science-specialist-research-synthesizer-v1.3.0.zip',
+      fileName: 'research-agent-specialist-research-synthesizer-v1.3.0.zip',
       expectedRevision: 3,
       skills: [],
       connectorIds: [],

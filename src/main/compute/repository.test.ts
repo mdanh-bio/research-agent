@@ -47,7 +47,7 @@ describe('compute host repository', () => {
         id: 'host-1',
         providerId: 'ssh:biowulf',
         displayName: 'biowulf',
-        shape: 'direct_ssh',
+        shape: 'unclassified',
         sshAlias: 'biowulf',
         sshOverrides: undefined,
         scratchRoot: undefined,
@@ -166,6 +166,18 @@ describe('compute host repository', () => {
     await expect(repository.create({ sshAlias: '   ' })).rejects.toThrow(/alias/i)
     expect(computeHost.create).not.toHaveBeenCalled()
   })
+
+  it.each(['-oProxyCommand=malicious', '../cluster', 'cluster name', 'cluster:*'])(
+    'rejects option-like or destination-unsafe alias %s before touching the database',
+    async (sshAlias) => {
+      const { client, computeHost } = createMockClient({})
+      const repository = new ComputeHostRepository(() => Promise.resolve(client))
+
+      await expect(repository.create({ sshAlias })).rejects.toThrow(/alias/i)
+      expect(computeHost.findUnique).not.toHaveBeenCalled()
+      expect(computeHost.create).not.toHaveBeenCalled()
+    }
+  )
 
   it('rejects a duplicate alias with a readable error before inserting', async () => {
     const { client, computeHost } = createMockClient({

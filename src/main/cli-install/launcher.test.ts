@@ -19,22 +19,22 @@ let home: string
 
 const posixEnv = (overrides: Partial<CliLauncherEnv> = {}): CliLauncherEnv => ({
   platform: 'linux',
-  appExecPath: '/opt/Open Science/open-science',
-  cliEntryPath: '/opt/Open Science/resources/cli/index.mjs',
+  appExecPath: '/opt/Research Agent/research-agent',
+  cliEntryPath: '/opt/Research Agent/resources/cli/index.mjs',
   packaged: true,
   homeDir: home,
-  userDataDir: join(home, '.config', 'Open Science'),
+  userDataDir: join(home, '.config', 'Research Agent'),
   pathVar: '/usr/bin',
   ...overrides
 })
 
 const winEnv = (overrides: Partial<CliLauncherEnv> = {}): CliLauncherEnv => ({
   platform: 'win32',
-  appExecPath: 'C:\\Program Files\\Open Science\\open-science.exe',
-  cliEntryPath: 'C:\\Program Files\\Open Science\\resources\\cli\\index.mjs',
+  appExecPath: 'C:\\Program Files\\Research Agent\\research-agent.exe',
+  cliEntryPath: 'C:\\Program Files\\Research Agent\\resources\\cli\\index.mjs',
   packaged: true,
   homeDir: home,
-  userDataDir: join(home, 'AppData', 'Roaming', 'Open Science'),
+  userDataDir: join(home, 'AppData', 'Roaming', 'Research Agent'),
   pathVar: 'C:\\Windows\\System32',
   ...overrides
 })
@@ -50,18 +50,19 @@ afterEach(async () => {
 describe('planCliLauncher', () => {
   it('targets ~/.local/bin with an executable sh shim on POSIX', () => {
     const plan = planCliLauncher(posixEnv())
-    expect(plan.target).toBe(join(home, '.local', 'bin', 'open-science'))
+    expect(plan.target).toBe(join(home, '.local', 'bin', 'research-agent'))
     expect(plan.mode).toBe(0o755)
     expect(plan.shim).toContain('#!/bin/sh')
     expect(plan.shim).toContain('ELECTRON_RUN_AS_NODE=1')
     // Packaged: pins the app path and single-quotes both paths (they contain a space).
-    expect(plan.shim).toContain("OPEN_SCIENCE_APP_PATH='/opt/Open Science/open-science'")
-    expect(plan.shim).toContain('\'/opt/Open Science/resources/cli/index.mjs\' "$@"')
+    expect(plan.shim).toContain("RESEARCH_AGENT_APP_PATH='/opt/Research Agent/research-agent'")
+    expect(plan.shim).not.toContain('OPEN_SCIENCE_APP_PATH')
+    expect(plan.shim).toContain('\'/opt/Research Agent/resources/cli/index.mjs\' "$@"')
   })
 
-  it('omits OPEN_SCIENCE_APP_PATH for a development (unpackaged) build', () => {
+  it('omits RESEARCH_AGENT_APP_PATH for a development (unpackaged) build', () => {
     const plan = planCliLauncher(posixEnv({ packaged: false }))
-    expect(plan.shim).not.toContain('OPEN_SCIENCE_APP_PATH')
+    expect(plan.shim).not.toContain('RESEARCH_AGENT_APP_PATH')
   })
 
   it('single-quotes POSIX paths so shell metacharacters cannot expand or break out', () => {
@@ -70,20 +71,24 @@ describe('planCliLauncher', () => {
     const nasty = "/opt/a b/$(x)`y`\\z/o'brien"
     const plan = planCliLauncher(posixEnv({ appExecPath: nasty, packaged: true }))
     // The whole path sits inside single quotes; the embedded ' is closed-escaped-reopened as '\''.
-    expect(plan.shim).toContain("OPEN_SCIENCE_APP_PATH='/opt/a b/$(x)`y`\\z/o'\\''brien'")
+    expect(plan.shim).toContain("RESEARCH_AGENT_APP_PATH='/opt/a b/$(x)`y`\\z/o'\\''brien'")
   })
 
   it('targets a per-user bin dir with a .cmd shim on Windows', () => {
     const plan = planCliLauncher(
       posixEnv({
         platform: 'win32',
-        appExecPath: 'C:\\Program Files\\Open Science\\open-science.exe',
-        userDataDir: 'C:\\Users\\me\\AppData\\Roaming\\Open Science'
+        appExecPath: 'C:\\Program Files\\Research Agent\\research-agent.exe',
+        userDataDir: 'C:\\Users\\me\\AppData\\Roaming\\Research Agent'
       })
     )
-    expect(plan.target.endsWith('open-science.cmd')).toBe(true)
+    expect(plan.target.endsWith('research-agent.cmd')).toBe(true)
     expect(plan.shim).toContain('@echo off')
     expect(plan.shim).toContain('set ELECTRON_RUN_AS_NODE=1')
+    expect(plan.shim).toContain(
+      'set "RESEARCH_AGENT_APP_PATH=C:\\Program Files\\Research Agent\\research-agent.exe"'
+    )
+    expect(plan.shim).not.toContain('OPEN_SCIENCE_APP_PATH')
     expect(plan.shim).toContain('%*')
   })
 
@@ -130,7 +135,7 @@ pdescribe('installCliLauncher / status / uninstall (POSIX)', () => {
 describe('buildWindowsPathCommand', () => {
   it('embeds the bin dir as a PowerShell literal, not via -args', () => {
     const { command, args } = buildWindowsPathCommand(
-      'C:\\Users\\me\\AppData\\Roaming\\Open Science\\bin'
+      'C:\\Users\\me\\AppData\\Roaming\\Research Agent\\bin'
     )
     expect(command).toBe('powershell')
     // The script must be passed to -Command and contain the actual dir literal; -args (the fragile
@@ -138,7 +143,7 @@ describe('buildWindowsPathCommand', () => {
     expect(args).toContain('-Command')
     expect(args).not.toContain('-args')
     const script = args[args.length - 1]
-    expect(script).toContain("$binDir = 'C:\\Users\\me\\AppData\\Roaming\\Open Science\\bin'")
+    expect(script).toContain("$binDir = 'C:\\Users\\me\\AppData\\Roaming\\Research Agent\\bin'")
     expect(script).toContain("[Environment]::SetEnvironmentVariable('Path'")
   })
 
@@ -161,7 +166,7 @@ describe('installCliLauncher on Windows PATH edit', () => {
     expect(status.pathHint).toContain('new terminal')
     // The injected runner received the actual bin dir embedded in the script (regression guard for
     // the -args passing bug).
-    const binDir = join(home, 'AppData', 'Roaming', 'Open Science', 'bin')
+    const binDir = join(home, 'AppData', 'Roaming', 'Research Agent', 'bin')
     expect(calls).toHaveLength(1)
     expect(calls[0].args.at(-1)).toContain(binDir)
   })
@@ -174,7 +179,7 @@ describe('installCliLauncher on Windows PATH edit', () => {
   })
 
   it('skips the PATH edit entirely when the bin dir is already on PATH', async () => {
-    const binDir = join(home, 'AppData', 'Roaming', 'Open Science', 'bin')
+    const binDir = join(home, 'AppData', 'Roaming', 'Research Agent', 'bin')
     let called = false
     const status = await installCliLauncher(winEnv({ pathVar: `C:\\Windows;${binDir}` }), () => {
       called = true

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { ModelTarget } from '../../shared/model-routing'
 import { SETTINGS_FILE_VERSION } from '../../shared/settings'
 import type { AgentConfigFile, AgentFrameworkId } from '../agent-framework'
 import { opencodeTransportProviderId } from '../agent-framework/opencode'
@@ -387,6 +388,51 @@ describe('AgentBackendResolver configured and explicit targets', () => {
     })
     expect(harness.resolveRuntimeTarget).not.toHaveBeenCalled()
     expectRuntimeNotStarted(harness.runtime)
+  })
+
+  it('resolves a routed target exactly without changing or consulting the active route', async () => {
+    const routedProvider = makeStoredProvider('routed-provider', 'provider-default-model')
+    const settings = makeSettings({
+      providers: [routedProvider],
+      activeProviderId: 'missing-active-provider',
+      activeModel: 'unrelated-active-model',
+      agentFrameworkId: 'claude-code',
+      reasoningEffort: 'max'
+    })
+    const harness = makeHarness({ settings })
+    const target: ModelTarget = {
+      id: 'analysis-medium-primary',
+      backend: 'opencode',
+      providerId: routedProvider.id,
+      model: 'routed-analysis-model',
+      reasoningEffort: 'low',
+      capabilities: ['text', 'tool_use', 'reasoning'],
+      dataBoundary: 'approved_cloud'
+    }
+
+    const backend = await harness.resolver.resolveRoutedTarget(target)
+
+    expect(harness.resolveRuntimeTarget).toHaveBeenCalledWith(
+      routedProvider,
+      { kind: 'required', model: 'routed-analysis-model' },
+      expect.objectContaining({ id: 'opencode' })
+    )
+    expect(backend).toMatchObject({
+      backendId: 'opencode:routed-provider',
+      sessionModel: 'routed-analysis-model',
+      sessionEffort: 'low'
+    })
+    expect(harness.readFrameworkOverride).not.toHaveBeenCalled()
+    expect(harness.runtime.resolveClaudeExecutable).not.toHaveBeenCalled()
+    expect(harness.runtime.resolveOpencodeExecutable).toHaveBeenCalledOnce()
+    expect(harness.getSettings()).toBe(settings)
+    expect(harness.getSettings()).toMatchObject({
+      activeProviderId: 'missing-active-provider',
+      activeModel: 'unrelated-active-model',
+      agentFrameworkId: 'claude-code',
+      reasoningEffort: 'max'
+    })
+    await backend.providerTransportLease?.release()
   })
 
   it('forces direct API-key Codex Responses through the existing compatibility proxy', async () => {

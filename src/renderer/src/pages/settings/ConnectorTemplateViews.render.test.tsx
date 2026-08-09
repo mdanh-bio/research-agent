@@ -176,7 +176,7 @@ describe('Connector configuration transfer views', () => {
       diagnostics: [],
       definition,
       digest: 'preview-digest',
-      suggestedFileName: 'open-science-connector-example-research.json'
+      suggestedFileName: 'research-agent-connector-example-research.json'
     })
     const exportCustomServerTemplate = vi.fn().mockResolvedValue({ saved: true })
     window.api = {
@@ -205,7 +205,7 @@ describe('Connector configuration transfer views', () => {
       diagnostics: [],
       definition,
       digest: 'preview-digest',
-      suggestedFileName: 'open-science-connector-example-research.json'
+      suggestedFileName: 'research-agent-connector-example-research.json'
     })
     const exportCustomServerTemplate = vi.fn().mockResolvedValue({ saved: false })
     window.api = {

@@ -1,33 +1,34 @@
-# Open Science CLI
+# Research Agent CLI
 
-The `open-science` command controls the local Open Science service and submits research tasks without
+The `research-agent` command controls the local Research Agent service and submits research tasks without
 requiring browser interaction.
 
 ## Installation
 
 ### From the installed application
 
-Open **Settings > General > Command line tool** in Open Science and choose **Install command**. This
-adds an `open-science` launcher to your PATH (`~/.local/bin` on macOS and Linux, or a per-user
+Open **Settings > General > Command line tool** in Research Agent and choose **Install command**. This
+adds a `research-agent` launcher to your PATH (`~/.local/bin` on macOS and Linux, or a per-user
 directory added to PATH on Windows). The launcher uses the application's bundled runtime, so it does
 not require a separate Node.js installation.
 
 If the launcher directory is not yet on PATH, the Settings panel shows the line to add. Open a new
 terminal after updating PATH. Choose **Uninstall command** in the same panel to remove the launcher.
 
-### From npm
+### From the private repository
 
-The npm package requires Node.js 22.5 or later and an installed Open Science desktop application.
-Install it globally after the package is published:
+The package requires Node.js 22.5 or later and an installed Research Agent desktop application. It
+is private and is not published to the public npm registry. From an authorized source checkout, it
+can be installed globally for development:
 
 ```bash
-npm install --global @aipoch/open-science
-open-science --help
+npm install --global ./packages/open-science
+research-agent --help
 ```
 
 ### From a source checkout
 
-Replace `open-science` in the examples below with:
+Replace `research-agent` in the examples below with:
 
 ```bash
 node packages/open-science/cli.mjs
@@ -38,26 +39,26 @@ node packages/open-science/cli.mjs
 Start the service without opening a browser, check its status, or stop it:
 
 ```bash
-open-science start --no-open
-open-science status --json
-open-science stop
+research-agent start --no-open
+research-agent status --json
+research-agent stop
 ```
 
 To open the Web UI later, request its authenticated URL explicitly:
 
 ```bash
-open-science url
+research-agent url
 ```
 
-`open-science url` is the only command that intentionally prints an authenticated browser URL. Normal
+`research-agent url` is the only command that intentionally prints an authenticated browser URL. Normal
 human-readable, JSON, and JSONL output never includes the local token.
 
 Use `--port <port>` to override the default port of `44100`. `--app-path <path>` selects a specific
-Open Science executable. Development builds also support `--config-root <path>`.
+Research Agent executable. Development builds also support `--config-root <path>`.
 
 ### Linux AppImage sandbox fallback
 
-`open-science start` keeps Chromium sandboxing enabled by default. On some Linux hosts, an AppImage
+`research-agent start` keeps Chromium sandboxing enabled by default. On some Linux hosts, an AppImage
 mounted with `nosuid` cannot use Chromium's SUID sandbox helper; Ubuntu may also restrict
 unprivileged user namespaces. In that case the command fails promptly with guidance instead of
 waiting for the service timeout.
@@ -65,7 +66,7 @@ waiting for the service timeout.
 If the host cannot support sandboxed startup, an explicit rootless fallback is available:
 
 ```bash
-open-science start --no-sandbox --no-open
+research-agent start --no-sandbox --no-open
 ```
 
 `--no-sandbox` disables Chromium's process sandbox and reduces security. Use it only when necessary;
@@ -76,8 +77,8 @@ the Debian package or a host configuration that supports Chromium sandboxing is 
 Create a project and list the projects available to task runs:
 
 ```bash
-open-science project create "Systematic review" --description "Evidence review workspace" --json
-open-science project list --json
+research-agent project create "Systematic review" --description "Evidence review workspace" --json
+research-agent project list --json
 ```
 
 Commands that accept `--project` allow either a project ID or an exact project name.
@@ -87,34 +88,34 @@ Commands that accept `--project` allow either a project ID or an exact project n
 Provide a prompt directly, read it from a UTF-8 file, or pipe it through stdin:
 
 ```bash
-open-science run --project "Systematic review" --prompt "Summarize the evidence" --wait
-open-science run --project "Systematic review" --prompt-file ./task.md --wait --json
-printf '%s\n' "Summarize the evidence" | open-science run --project "Systematic review" --wait --json
+research-agent run --project "Systematic review" --prompt "Summarize the evidence" --wait
+research-agent run --project "Systematic review" --prompt-file ./task.md --wait --json
+printf '%s\n' "Summarize the evidence" | research-agent run --project "Systematic review" --wait --json
 ```
 
 Without `--wait`, the command returns as soon as the run starts. Use the returned `id` and `sessionId`
 to poll its state:
 
 ```bash
-open-science run --project "Systematic review" --prompt-file ./task.md --json
-open-science run status <run-id> --json
-open-science run cancel <run-id> --json
-open-science session status <session-id> --json
+research-agent run --project "Systematic review" --prompt-file ./task.md --json
+research-agent run status <run-id> --json
+research-agent run cancel <run-id> --json
+research-agent session status <session-id> --json
 ```
 
 Use `--timeout-ms <milliseconds>` with `--wait` to bound how long the client waits. A timeout stops the
 CLI wait and returns exit code `1`; it does not cancel the run, which can still be inspected with
-`open-science run status <run-id>`. Add `--cancel-on-timeout` to explicitly cancel the server run after
+`research-agent run status <run-id>`. Add `--cancel-on-timeout` to explicitly cancel the server run after
 the timeout; the command still reports the original timeout and returns exit code `1`. Explicit
 cancellation waits for provider work and application finalization to drain, and preserves partial
 output and successfully finalized artifacts. When the `ask` approval profile needs permission,
-human-readable output directs the user to approve the request in Open Science Desktop or the Web UI.
+human-readable output directs the user to approve the request in Research Agent Desktop or the Web UI.
 
 Pass an existing session ID to continue a conversation. Approval profiles are `ask`, `auto`, and
 `full`; `--skill` is repeatable:
 
 ```bash
-open-science run \
+research-agent run \
   --project "Systematic review" \
   --session <session-id> \
   --prompt-file ./follow-up.md \
@@ -140,7 +141,7 @@ Session and registered its Run; Session creation or resume time before registrat
 stream.
 
 ```bash
-open-science run \
+research-agent run \
   --project "Systematic review" \
   --prompt-file ./task.md \
   --approval-profile auto \
@@ -172,21 +173,22 @@ Timeouts and `session_busy` conflicts use exit code `1` and retain their distinc
 List the artifacts produced for a session and download one by ID:
 
 ```bash
-open-science artifacts list <session-id> --json
-open-science artifacts download <artifact-id> --output ./report.md --json
+research-agent artifacts list <session-id> --json
+research-agent artifacts download <artifact-id> --output ./report.md --json
 ```
 
 Artifact output paths are resolved relative to the current working directory.
 
 ## Rollback to 0.7.3
 
-The current Session and file formats contain fields that Open Science 0.7.3 cannot safely write.
-Replacing only the application binary can therefore discard newer Upload, conversation-branch, and
-Artifact provenance data. Prepare a compatible copy before installing 0.7.3:
+The current Research Agent Session and file formats contain fields that upstream Open Science 0.7.3
+cannot safely write. Replacing only the application binary can therefore discard newer Upload,
+conversation-branch, and Artifact provenance data. Prepare a compatible copy before installing the
+upstream version:
 
-1. Quit Open Science completely.
-2. Run `open-science rollback-to-0.7.3 --yes`.
-3. Keep the paths printed by the command, then install and start Open Science 0.7.3.
+1. Quit Research Agent completely.
+2. Run `research-agent rollback-to-0.7.3 --yes`.
+3. Keep the paths printed by the command, then install and start upstream Open Science 0.7.3.
 
 No pre-upgrade backup is required. The command is offline and does not rewrite the newer data: it
 copies Uploads, Artifacts, Notebooks, and workspaces into a new rollback Data Root; converts each
@@ -199,13 +201,13 @@ By default, the rollback Data Root is a timestamped sibling of the current Data 
 empty location with `--output`:
 
 ```bash
-open-science rollback-to-0.7.3 --yes --output /path/to/OpenScience-0.7.3
+research-agent rollback-to-0.7.3 --yes --output /path/to/OpenScience-0.7.3
 ```
 
 Development and recovery workflows can override both source roots explicitly:
 
 ```bash
-open-science rollback-to-0.7.3 --yes \
+research-agent rollback-to-0.7.3 --yes \
   --config-root /path/to/.open-science \
   --data-root /path/to/OpenScience \
   --output /path/to/OpenScience-0.7.3
@@ -220,9 +222,9 @@ directories while that recovery runs.
 
 The 0.7.3 copy contains only the active branch of each conversation. Inactive branches, Artifact
 version history, reviews, and provenance snapshots remain preserved in the newer roots but are not
-visible to 0.7.3. The command refuses to run while Open Science appears active, when a source path is
-missing or aliases storage through a symbolic link/junction, when a Version's size or checksum does
-not match SQLite, or when a rollback target already exists.
+visible to upstream Open Science 0.7.3. The command refuses to run while Research Agent appears
+active, when a source path is missing or aliases storage through a symbolic link/junction, when a
+Version's size or checksum does not match SQLite, or when a rollback target already exists.
 
 ## Current scope
 

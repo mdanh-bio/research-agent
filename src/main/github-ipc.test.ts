@@ -39,6 +39,12 @@ describe('github IPC handler', () => {
     const fetch = vi.fn().mockResolvedValue(jsonResponse({ stargazers_count: 1234 }))
     registerGithubIpcHandlers({ fetch })
     await expect(invoke('github:get-stars')).resolves.toBe(1234)
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'User-Agent': 'research-agent-app' })
+      })
+    )
   })
 
   it('returns null on a non-200 response', async () => {

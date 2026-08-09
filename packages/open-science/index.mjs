@@ -16,8 +16,8 @@ export class OpenScienceApiError extends Error {
 
 export class OpenScienceClient {
   constructor({ baseUrl, token, fetch: fetchImpl = globalThis.fetch, sleep = defaultSleep }) {
-    if (!baseUrl) throw new Error('Open Science baseUrl is required.')
-    if (!token) throw new Error('Open Science token is required.')
+    if (!baseUrl) throw new Error('Research Agent baseUrl is required.')
+    if (!token) throw new Error('Research Agent token is required.')
     if (!fetchImpl) throw new Error('A Fetch implementation is required.')
     this.baseUrl = baseUrl.replace(/\/$/, '')
     this.token = token
@@ -30,7 +30,7 @@ export class OpenScienceClient {
       headers: { authorization: `Bearer ${this.token}`, accept: 'application/json' }
     })
     if (!response.ok) {
-      throw new OpenScienceApiError('Open Science is not running.', {
+      throw new OpenScienceApiError('Research Agent is not running.', {
         code: 'daemon_unavailable',
         status: response.status
       })
@@ -133,7 +133,7 @@ export class OpenScienceClient {
     })
     socket.addEventListener('open', () => resolveReady())
     socket.addEventListener('error', () => {
-      failure = new OpenScienceApiError('Open Science event stream failed.', {
+      failure = new OpenScienceApiError('Research Agent event stream failed.', {
         code: 'event_stream_failed'
       })
       resolveReady()
@@ -194,7 +194,7 @@ export class OpenScienceClient {
       error = undefined
     }
     throw new OpenScienceApiError(
-      error?.message ?? `Open Science request failed (${response.status}).`,
+      error?.message ?? `Research Agent request failed (${response.status}).`,
       {
         code: error?.code,
         status: response.status
@@ -207,7 +207,7 @@ export const connectToOpenScience = async ({ configRoot, env, fetch } = {}) => {
   const state = await findServiceState({ override: configRoot, env })
   if (!state) {
     throw new OpenScienceApiError(
-      'Open Science is not running. Start it with "open-science start".',
+      'Research Agent is not running. Start it with "research-agent start".',
       {
         code: 'daemon_unavailable'
       }

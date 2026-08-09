@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { PROD_SESSION_DIR_NAME } from '../session-persistence/repository'
+import { readResearchAgentEnvironment } from '../../shared/environment-overrides'
 import type {
   NotebookEnvironmentPackageChange,
   NotebookLanguage,
@@ -603,7 +604,11 @@ export async function installPackages(
 
   const storageRoot =
     deps.storageRoot ??
-    process.env.OPEN_SCIENCE_STORAGE_ROOT ??
+    readResearchAgentEnvironment(
+      process.env,
+      'RESEARCH_AGENT_STORAGE_ROOT',
+      'OPEN_SCIENCE_STORAGE_ROOT'
+    ) ??
     join(homedir(), PROD_SESSION_DIR_NAME)
   const root = runtimeRoot(storageRoot)
   const channels = condaInstallChannels(deps.condaChannel ?? DEFAULT_CONDA_CHANNEL, req.channels)
@@ -944,7 +949,7 @@ export async function installPackages(
       prefix,
       error:
         `Cannot verify the installed r-base version and build in ${prefix}; repair this R runtime ` +
-        'before installing packages. Open Science will not run an incompletely pinned R package transaction.'
+        'before installing packages. Research Agent will not run an incompletely pinned R package transaction.'
     }
   }
   const installedRBaseVersion = installedRBaseIdentity.version

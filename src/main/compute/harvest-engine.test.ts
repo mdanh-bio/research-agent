@@ -287,7 +287,7 @@ describe('harvestJob — data-root migration gate', () => {
           jobRepository,
           storageRoot: dataRoot
         })
-      ).rejects.toThrow('Open Science is moving your data')
+      ).rejects.toThrow('Research Agent is moving your data')
     } finally {
       clearMigrationPending()
     }

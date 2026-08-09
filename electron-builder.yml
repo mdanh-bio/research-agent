@@ -1,6 +1,6 @@
-appId: com.aipoch.open-science
-productName: Open Science
-copyright: Copyright © 2026 AIPOCH
+appId: bio.mdanh.research-agent
+productName: Research Agent
+copyright: Copyright © 2026 mdanh-bio and AIPOCH contributors
 directories:
   buildResources: build
 # Apply a valid deep ad-hoc signature on macOS (no Developer ID available). Without this,
@@ -60,7 +60,7 @@ extraResources:
     to: node_modules/.prisma
   - from: node_modules/@prisma/client
     to: node_modules/@prisma/client
-  # Ship the `open-science` CLI as plain files (not in the asar) so the installed command-line launcher
+  # Ship the `research-agent` CLI as plain files (not in the asar) so the installed command-line launcher
   # can run it with the app's own Electron in Node mode. Only the runtime .mjs files; tests are excluded.
   - from: cli
     to: cli
@@ -76,9 +76,9 @@ extraResources:
 # Windows: an unsigned NSIS installer. SmartScreen shows a bypassable "unknown publisher" prompt.
 # The afterPack ad-hoc-sign hook is a no-op off macOS, so it is safe on this target.
 win:
-  executableName: open-science
+  executableName: research-agent
   icon: build/icon.ico
-  artifactName: aipoch-${name}-${version}-win-${arch}.${ext}
+  artifactName: ${name}-${version}-win-${arch}.${ext}
   # nsis = the installer; zip = a portable, no-install build. Offer both, mirroring mac (dmg + zip).
   target:
     - nsis
@@ -95,7 +95,7 @@ win:
     - from: build/windows-runtime-cache-uninstall.ps1
       to: windows-runtime-cache-uninstall.ps1
 nsis:
-  artifactName: aipoch-${name}-${version}-win-${arch}-setup.${ext}
+  artifactName: ${name}-${version}-win-${arch}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -108,14 +108,14 @@ mac:
   # volume still uses the legacy, explicitly-designed ICNS artwork.
   icon: build/icon.icon
   darkModeSupport: true
-  artifactName: aipoch-${name}-${version}-mac-${arch}.${ext}
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
   # Minimum macOS to run the app (written to Info.plist LSMinimumSystemVersion). macOS 12 (Monterey)
   # and up; below this the OS refuses to launch. Independent of the CI build runner's macOS version.
   minimumSystemVersion: '12.0.0'
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    CFBundleName: Open Science
-    CFBundleDisplayName: Open Science
+    CFBundleName: Research Agent
+    CFBundleDisplayName: Research Agent
     NSCameraUsageDescription: Application requests access to the device's camera.
     NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
@@ -123,8 +123,8 @@ mac:
   notarize: false
   extraResources:
     # Ship the ad-hoc-signed micromamba mach-O at Contents/Resources/micromamba, where
-    # resolveMicromamba() finds it via process.resourcesPath. Envs materialize in ~/.open-science
-    # (never in the signed .app), so only this one binary needs signing (spec §10).
+    # resolveMicromamba() finds it via process.resourcesPath. Environments materialize under the
+    # Research Agent data root (never in the signed .app), so only this binary needs signing.
     - from: resources/bin/mac/${arch}/micromamba
       to: micromamba
 dmg:
@@ -134,7 +134,7 @@ dmg:
   # Stable macOS releases require a primary signature on the outer DMG in addition to the signed app
   # and notarization ticket. Nightly and certificate-free builds override this to false in build.yml.
   sign: true
-  artifactName: aipoch-${name}-${version}-mac-${arch}.${ext}
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
 linux:
   # Keep the installed launcher filename aligned with Electron's Linux app_id/WM_CLASS so desktop
   # environments associate urgency requests with the existing dock/taskbar entry.
@@ -144,7 +144,7 @@ linux:
   target:
     - AppImage
     - deb
-  maintainer: aipoch
+  maintainer: mdanh-bio
   category: Utility
   extraResources:
     # Staged per-arch micromamba binary, copied to the resources root (Task 2's resolveMicromamba
@@ -152,21 +152,12 @@ linux:
     - from: resources/bin/linux/${arch}/micromamba
       to: micromamba
 appImage:
-  artifactName: aipoch-${name}-${version}-linux-${arch}.${ext}
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
 deb:
-  artifactName: aipoch-${name}_${version}_${arch}.${ext}
+  artifactName: ${name}_${version}_${arch}.${ext}
 npmRebuild: false
-# electron-updater feed. Win/Linux/macOS auto-update reads app-update.yml (generated from this block)
-# and fetches its feed from <url>. Win/Linux use the default `latest` channel (latest.yml /
-# latest-linux.yml). macOS builds override the channel to the arch at build time (see build.yml), so
-# each arch polls its own `${arch}-mac.yml` — arm64 and x64 build on separate runners and would
-# otherwise collide on one latest-mac.yml. Mac in-place update needs a Developer ID signature (now
-# configured) and the feed is regenerated post-staple in notarize-mac.yml. The GitHub Release remains
-# the human-facing download source, populated by release.yml — electron-builder runs with --publish
-# never, so this block only shapes app-update.yml + the feed files, it does not upload anything.
-publish:
-  provider: generic
-  url: https://statics.aipoch.com/open-science/app/stable
-  channel: latest
+# This private fork intentionally has no electron-builder publish target. Its runtime update strategy
+# is disabled until a private, authenticated release channel is designed and tested; packages are
+# installed manually so this build can never consume AIPOCH's public update feed.
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/

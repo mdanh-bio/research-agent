@@ -299,7 +299,7 @@ describe('runEnvironmentCheck', () => {
 
   it('uses diagnostic message when runtime detection provides one', async () => {
     const diagnosticMessage =
-      'Native Codex 0.144.2 is installed at /Applications/ChatGPT.app/Contents/Resources/codex, but the Codex ACP adapter required by Open Science is missing.'
+      'Native Codex 0.144.2 is installed at /Applications/ChatGPT.app/Contents/Resources/codex, but the Codex ACP adapter required by Research Agent is missing.'
 
     const result = await runEnvironmentCheck({
       storageRoot: '/data',

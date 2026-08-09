@@ -766,7 +766,7 @@ describe('SettingsService: providers', () => {
       ok: false,
       category: 'auth',
       message:
-        'No existing Codex login was found. Run `codex login` or use the isolated Open Science login.'
+        'No existing Codex login was found. Run `codex login` or use the isolated Research Agent login.'
     })
     expect(codexAuth.getStatus).toHaveBeenCalledWith('shared')
   })
@@ -1019,7 +1019,7 @@ describe('SettingsService: providers', () => {
     expect(result).toEqual({
       ok: false,
       category: 'unknown',
-      message: 'No isolated Open Science Codex login is configured.'
+      message: 'No isolated Research Agent Codex login is configured.'
     })
     expect(codexAuth.cancelLogin).not.toHaveBeenCalled()
     expect(codexAuth.logoutIsolated).not.toHaveBeenCalled()
@@ -2201,7 +2201,7 @@ describe('SettingsService: preflight & spawn config', () => {
         path: adapterPath,
         version: 'codex-acp 1.1.4',
         nativePath,
-        nativeVersion: 'codex-cli 0.144.6'
+        nativeVersion: 'codex-cli 0.147.0'
       }
     })
     await repository.setCodexInfo({
@@ -2245,7 +2245,7 @@ describe('SettingsService: preflight & spawn config', () => {
       resolvedPath: adapterPath,
       version: '1.1.4',
       nativePath,
-      nativeVersion: '0.144.6'
+      nativeVersion: '0.147.0'
     })
     const provider = (
       await service.upsertProvider({
@@ -2382,7 +2382,7 @@ describe('SettingsService: preflight & spawn config', () => {
     await service.setActiveProvider(provider.id)
 
     await expect(resolveActiveBackend(service)).rejects.toThrow(
-      'Open Science Codex ACP adapter not found. Install Codex in settings.'
+      'Research Agent Codex ACP adapter not found. Install Codex in settings.'
     )
   })
 
@@ -6681,9 +6681,9 @@ describe('SettingsService: claude-shared login orchestration', () => {
     ).resolves.toMatchObject({
       ok: false,
       category: 'auth',
-      message: expect.stringContaining('disconnected from Open Science')
+      message: expect.stringContaining('disconnected from Research Agent')
     })
-    await expect(resolveActiveBackend(service)).rejects.toThrow(/disconnected from Open Science/)
+    await expect(resolveActiveBackend(service)).rejects.toThrow(/disconnected from Research Agent/)
 
     await expect(service.loginClaudeShared()).resolves.toMatchObject({ ok: true, applied: true })
     await expect(resolveActiveBackend(service)).resolves.toMatchObject({

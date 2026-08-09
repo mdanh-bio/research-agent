@@ -45,7 +45,11 @@ export type FetchLike = (
   body?: ByteStream | null
 }>
 
-const GITHUB_HEADERS = { 'User-Agent': 'open-science', Accept: 'application/vnd.github+json' }
+const GITHUB_USER_AGENT = 'research-agent'
+const GITHUB_HEADERS = {
+  'User-Agent': GITHUB_USER_AGENT,
+  Accept: 'application/vnd.github+json'
+}
 
 const TRUSTED_GITHUB_TOKEN_HOSTS = new Set(['api.github.com', 'raw.githubusercontent.com'])
 
@@ -226,7 +230,9 @@ const fetchSkillPreview = async (
       files.push(relativePath)
 
       if (relativePath.toLowerCase() !== 'skill.md' || !entry.download_url) continue
-      const raw = await request(entry.download_url, { headers: { 'User-Agent': 'open-science' } })
+      const raw = await request(entry.download_url, {
+        headers: { 'User-Agent': GITHUB_USER_AGENT }
+      })
       if (!raw.ok) throw githubRequestError(raw, `Download of ${entry.path}`)
 
       const previewTooLarge = (): never => {
@@ -293,7 +299,9 @@ const fetchSkillFiles = async (
         if (fileCount >= SKILL_IMPORT_LIMITS.maxFiles) {
           throw new Error(`Skill has too many files (limit ${SKILL_IMPORT_LIMITS.maxFiles}).`)
         }
-        const raw = await request(entry.download_url, { headers: { 'User-Agent': 'open-science' } })
+        const raw = await request(entry.download_url, {
+          headers: { 'User-Agent': GITHUB_USER_AGENT }
+        })
         if (!raw.ok) {
           throw githubRequestError(raw, `Download of ${entry.path}`)
         }

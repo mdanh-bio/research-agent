@@ -4,8 +4,10 @@ import { access, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, normalize } from 'node:path'
 
-export const DEV_CONFIG_DIR = '.open-science-project'
-export const PROD_CONFIG_DIR = '.open-science'
+import { readResearchAgentEnvironment } from './environment-overrides.mjs'
+
+export const DEV_CONFIG_DIR = '.research-agent-project'
+export const PROD_CONFIG_DIR = '.research-agent'
 export const STATE_FILE = 'web-service.json'
 export const TOKEN_FILE = 'web-token'
 
@@ -19,7 +21,10 @@ const exists = async (path) => {
 }
 
 export const resolveConfigRoot = ({ packaged = false, override, env = process.env } = {}) => {
-  const requested = override ?? env.OPEN_SCIENCE_CONFIG_ROOT ?? env.OPEN_SCIENCE_STORAGE_ROOT
+  const requested =
+    override ??
+    readResearchAgentEnvironment(env, 'RESEARCH_AGENT_CONFIG_ROOT', 'OPEN_SCIENCE_CONFIG_ROOT') ??
+    readResearchAgentEnvironment(env, 'RESEARCH_AGENT_STORAGE_ROOT', 'OPEN_SCIENCE_STORAGE_ROOT')
   if (requested) {
     if (!isAbsolute(requested)) throw new Error('The config root must be an absolute path.')
     return normalize(requested)
@@ -28,7 +33,11 @@ export const resolveConfigRoot = ({ packaged = false, override, env = process.en
 }
 
 export const candidateConfigRoots = ({ override, env = process.env } = {}) => {
-  if (override ?? env.OPEN_SCIENCE_CONFIG_ROOT ?? env.OPEN_SCIENCE_STORAGE_ROOT) {
+  const requested =
+    override ??
+    readResearchAgentEnvironment(env, 'RESEARCH_AGENT_CONFIG_ROOT', 'OPEN_SCIENCE_CONFIG_ROOT') ??
+    readResearchAgentEnvironment(env, 'RESEARCH_AGENT_STORAGE_ROOT', 'OPEN_SCIENCE_STORAGE_ROOT')
+  if (requested) {
     return [resolveConfigRoot({ override, env })]
   }
   return [resolveConfigRoot({ packaged: false, env }), resolveConfigRoot({ packaged: true, env })]

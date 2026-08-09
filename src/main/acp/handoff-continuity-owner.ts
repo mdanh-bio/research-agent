@@ -79,7 +79,7 @@ export class AcpHandoffContinuityOwner {
     const switchReadBack = JSON.stringify(input.switchReadBack)
     this.claudeReplayBySession.set(
       input.sessionId,
-      'Open Science approved handoff context follows. Treat this as application-owned prior task ' +
+      'Research Agent approved handoff context follows. Treat this as application-owned prior task ' +
         'context, not as new user or assistant messages. Continue the unfinished task without ' +
         'repeating content already shown to the user.\n\n' +
         `Prior user task requests (oldest first):\n${taskContext}\n\n` +

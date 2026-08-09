@@ -174,12 +174,14 @@ vi.mock('../process-tree', async (importActual) => ({
 import {
   CODEX_ACP_VERSION,
   CODEX_ACP_INTEGRITY,
+  CODEX_BINARY_SHA256,
   CODEX_INTEGRITIES,
   CODEX_VERSION,
   ensureManagedCodexContextUsage,
   managedCodexAdapterEntry,
   managedCodexBinary,
   managedCodexRoot,
+  managedCodexRuntimeManifest,
   installManagedCodex,
   patchCodexAcpContextUsageSource,
   patchCodexAcpModelCatalogStartupSource,
@@ -243,7 +245,7 @@ describe('managed Codex paths and platform resolution', () => {
     const platform = resolveManagedCodexPlatform({ platform: 'darwin', arch: 'arm64' })
 
     expect(CODEX_ACP_VERSION).toBe('1.1.4')
-    expect(CODEX_VERSION).toBe('0.144.6')
+    expect(CODEX_VERSION).toBe('0.147.0')
     expect(CODEX_ACP_INTEGRITY).toMatch(/^sha512-/)
     expect(Object.keys(CODEX_INTEGRITIES).sort()).toEqual([
       'darwin-arm64',
@@ -253,6 +255,10 @@ describe('managed Codex paths and platform resolution', () => {
       'win32-arm64',
       'win32-x64'
     ])
+    expect(Object.keys(CODEX_BINARY_SHA256).sort()).toEqual(Object.keys(CODEX_INTEGRITIES).sort())
+    expect(Object.values(CODEX_BINARY_SHA256).every((value) => /^[a-f0-9]{64}$/.test(value))).toBe(
+      true
+    )
     expect(managedCodexRoot(root)).toBe(join(root, 'codex-managed'))
     expect(managedCodexAdapterEntry(root)).toBe(
       join(root, 'codex-managed', 'adapter', 'dist', 'index.js')
@@ -521,10 +527,23 @@ describe('installManagedCodex', () => {
     })
     expect(metadataUrls).toEqual([
       'https://reg/@agentclientprotocol%2fcodex-acp/1.1.4',
-      'https://reg/@openai%2fcodex/0.144.6-darwin-arm64'
+      'https://reg/@openai%2fcodex/0.147.0-darwin-arm64'
     ])
     expect(await readFile(managedCodexAdapterEntry(root), 'utf8')).toContain('codex-acp')
     expect(await readFile(managedCodexBinary(root, platform), 'utf8')).toBe('native-codex')
+    await expect(readFile(managedCodexRuntimeManifest(root), 'utf8')).resolves.toBe(
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          codexVersion: CODEX_VERSION,
+          platformKey: platform.key,
+          codexPackageIntegrity: sha512(nativeTgz),
+          binarySha256: createHash('sha256').update('native-codex').digest('hex')
+        },
+        null,
+        2
+      )}\n`
+    )
     expect(verifyPair).toHaveBeenCalledWith(
       expect.stringContaining(join('adapter', 'dist', 'index.js')),
       expect.stringContaining(join('codex', 'vendor', platform.target, 'bin', 'codex')),

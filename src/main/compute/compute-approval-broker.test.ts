@@ -110,6 +110,24 @@ describe('ComputeApprovalBroker', () => {
     await expect(decision).resolves.toBe('deny')
   })
 
+  it('defaults malformed renderer decisions to deny', async () => {
+    const timer = makeTimer()
+    const onSettled = vi.fn()
+    const broker = new ComputeApprovalBroker({
+      generateId: () => 'id-1',
+      broadcast: () => undefined,
+      setTimer: timer.set,
+      clearTimer: timer.clear,
+      onSettled
+    })
+
+    const decision = broker.request(makeRequest())
+    broker.respond('id-1', 'approve-anything')
+
+    await expect(decision).resolves.toBe('deny')
+    expect(onSettled).toHaveBeenCalledWith('id-1', 'rejected')
+  })
+
   it('auto-denies when the request times out', async () => {
     const timer = makeTimer()
     const broker = new ComputeApprovalBroker({
@@ -362,6 +380,39 @@ describe('ComputeApprovalBroker', () => {
       ownerId: 'replacement-host-row'
     })
     expect(broadcast).not.toHaveBeenCalled()
+  })
+
+  it('never consumes or remembers grants for submit_job and normalizes broad allows to once', async () => {
+    let sequence = 0
+    const broadcast = vi.fn()
+    const resolveGrant = vi.fn().mockResolvedValue('global')
+    const remember = vi.fn()
+    const broker = new ComputeApprovalBroker({
+      generateId: () => `id-${++sequence}`,
+      broadcast,
+      permissionGrants: { resolve: resolveGrant, remember } as never
+    })
+    const context = {
+      sessionId: 'session-1',
+      projectId: 'project-1',
+      operation: 'submit_job',
+      ownerId: 'host-row-1'
+    }
+
+    const first = broker.requestWithContext(makeRequest(), context)
+    await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(1))
+    expect(resolveGrant).not.toHaveBeenCalled()
+    expect(broadcast.mock.calls[0]?.[0]).toMatchObject({ id: 'id-1', single_use: true })
+    broker.respond('id-1', 'global')
+    await expect(first).resolves.toBe('once')
+    expect(remember).not.toHaveBeenCalled()
+
+    const second = broker.requestWithContext(makeRequest(), context)
+    await vi.waitFor(() => expect(broadcast).toHaveBeenCalledTimes(2))
+    broker.respond('id-2', 'conversation')
+    await expect(second).resolves.toBe('once')
+    expect(resolveGrant).not.toHaveBeenCalled()
+    expect(remember).not.toHaveBeenCalled()
   })
 
   // ── conversation scope ────────────────────────────────────────────────────────────

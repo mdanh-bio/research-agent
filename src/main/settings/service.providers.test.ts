@@ -3,9 +3,13 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+const { isEncryptionAvailable } = vi.hoisted(() => ({
+  isEncryptionAvailable: vi.fn(() => true)
+}))
+
 vi.mock('electron', () => ({
   safeStorage: {
-    isEncryptionAvailable: () => true,
+    isEncryptionAvailable,
     encryptString: (plaintext: string) => Buffer.from(`cipher:${plaintext}`, 'utf8'),
     decryptString: (buffer: Buffer) => buffer.toString('utf8').slice('cipher:'.length)
   },
@@ -21,12 +25,19 @@ describe('SettingsService provider facade', () => {
   let service: InstanceType<typeof SettingsService>
 
   beforeEach(async () => {
+    isEncryptionAvailable.mockClear()
     dir = await mkdtemp(join(tmpdir(), 'osci-service-providers-facade-'))
     repository = new SettingsRepository(dir)
     service = new SettingsService({ repository, storageRoot: dir })
     return async () => {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  it('does not query secure storage when there are no legacy key refs to migrate', async () => {
+    await service.getStoredSettings()
+
+    expect(isEncryptionAvailable).not.toHaveBeenCalled()
   })
 
   it('keeps provider key migration on the existing whole-settings read path', async () => {
@@ -46,6 +57,7 @@ describe('SettingsService provider facade', () => {
     expect(await readFile(join(dir, 'settings.json'), 'utf8')).toContain(legacyRef)
 
     const snapshot = await service.getSettingsView()
+    expect(isEncryptionAvailable).toHaveBeenCalled()
     const stored = await readFile(join(dir, 'settings.json'), 'utf8')
     expect(stored).not.toContain(legacyRef)
     expect(stored).toContain('enc:')

@@ -130,7 +130,7 @@ export const formatPlanProtectedContext = (projection: ActivePlanProjection): st
     `revision=${projection.revision} approval=${projection.approval} lifecycle=${projection.lifecycle}`,
     `task=${compactPlanContextText(projection.document.task_summary)}`,
     ...steps,
-    'Do not execute this Plan without interaction-bound authority from Open Science.',
+    'Do not execute this Plan without interaction-bound authority from Research Agent.',
     '</open_science_protected_plan_context>'
   ].join('\n')
 }

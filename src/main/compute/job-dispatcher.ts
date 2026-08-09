@@ -5,6 +5,12 @@ import type { ComputeJobRepository } from './job-repository'
 import type { ComputeHostRepository } from './repository'
 import type { SshRunner } from './ssh-runner'
 import { resolveSshTarget } from './ssh-runner'
+import {
+  assertApprovedHostAndTarget,
+  parseApprovedDispatchBinding,
+  revalidateInputContentIdentities
+} from './compute-dispatch-binding'
+import type { ApprovedDispatchBinding, StagedInputEntry } from './compute-dispatch-binding'
 import type { ScpRunner } from './scp-runner'
 import { SystemScpRunner, runScpUpload } from './scp-runner'
 import { shellSingleQuote } from './scp-runner'
@@ -52,7 +58,7 @@ export const hashCommand = (command: string): string =>
 // This is called both at submit time (to return immediately) and by the dispatcher.
 export const computeRemoteWorkdir = (scratchRoot: string | undefined, jobId: string): string => {
   const root = scratchRoot?.trim() || '~'
-  return `${root}/.openscience/jobs/${jobId}`
+  return `${root}/.research-agent/jobs/${jobId}`
 }
 
 // Quotes a remote path for safe interpolation into a remote shell command, while still allowing a
@@ -67,11 +73,7 @@ export const quoteRemotePath = (path: string): string => {
   return singleQuote(path)
 }
 
-// One entry in the stored input manifest. Created by ComputeService (validation/resolution)
-// and consumed by the dispatcher (staging).
-export type StagedInputEntry =
-  | { kind: 'upload'; localPath: string; dstFilename: string; label: string }
-  | { kind: 'symlink'; remotePath: string; dstFilename: string; label: string }
+export type { StagedInputEntry } from './compute-dispatch-binding'
 
 // Performs the remote staging for all entries: scp upload for 'upload' entries,
 // remote ln -s for 'symlink' entries. All-or-nothing: throws on first failure.
@@ -151,15 +153,39 @@ async function dispatchJobInner(jobId: string, deps: DispatcherDeps): Promise<vo
     return
   }
 
-  // Resolve SSH target (runs ssh -G). Failure = host_unreachable.
+  let binding: ApprovedDispatchBinding
+  try {
+    binding = parseApprovedDispatchBinding(job.input_manifest)
+    if (
+      binding.scriptHash !== job.command_hash ||
+      hashCommand(job.command) !== binding.scriptHash
+    ) {
+      throw new Error('The job script no longer matches the script approved by the user.')
+    }
+  } catch (error) {
+    const updated = await jobRepository.update(jobId, {
+      status: 'error',
+      errorCode: 'approval_stale',
+      stderrTail: error instanceof Error ? error.message : String(error),
+      finishedAt: new Date()
+    })
+    onJobUpdated?.(updated)
+    return
+  }
+
+  // Re-resolve and compare the exact host proof, endpoint, options, and local input content before
+  // any staging side effect. A queued job may sit for hours after approval, so the persisted binding
+  // rather than a stale in-memory object is authoritative here.
   let target
   try {
     target = await resolveSshTarget(host.sshAlias, host.sshOverrides)
+    assertApprovedHostAndTarget(binding, host, target)
+    await revalidateInputContentIdentities(binding.inputs)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const updated = await jobRepository.update(jobId, {
       status: 'error',
-      errorCode: 'host_unreachable',
+      errorCode: 'approval_stale',
       stderrTail: msg,
       finishedAt: new Date()
     })
@@ -170,22 +196,8 @@ async function dispatchJobInner(jobId: string, deps: DispatcherDeps): Promise<vo
   const workdir = job.remote_workdir ?? computeRemoteWorkdir(host.scratchRoot, jobId)
   const timeoutSecs = job.timeout_seconds ?? 86400 // default 24h
 
-  // Stage inputs declared in the manifest (all-or-nothing: failure → dispatch_failed).
-  if (job.input_manifest) {
-    let entries: StagedInputEntry[]
-    try {
-      entries = JSON.parse(job.input_manifest) as StagedInputEntry[]
-    } catch {
-      const updated = await jobRepository.update(jobId, {
-        status: 'error',
-        errorCode: 'dispatch_failed',
-        stderrTail: 'Failed to parse inputManifest JSON',
-        finishedAt: new Date()
-      })
-      onJobUpdated?.(updated)
-      return
-    }
-
+  // Stage inputs declared in the approved binding (all-or-nothing: failure → dispatch_failed).
+  if (binding.inputs.length > 0) {
     // Mkdir workdir first so symlinks and uploads have a destination.
     const mkdirResult = await runner.run(target, `mkdir -p ${quoteRemotePath(workdir)}`, {
       timeoutMs: 30_000,
@@ -205,7 +217,7 @@ async function dispatchJobInner(jobId: string, deps: DispatcherDeps): Promise<vo
     }
 
     try {
-      await stageInputs(entries, workdir, runner, target, scpRunner)
+      await stageInputs(binding.inputs, workdir, runner, target, scpRunner)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const updated = await jobRepository.update(jobId, {
@@ -226,6 +238,29 @@ async function dispatchJobInner(jobId: string, deps: DispatcherDeps): Promise<vo
   // Encode to base64 to avoid all shell quoting/injection issues.
   const commandB64 = toBase64(commandScript)
   const launcherB64 = toBase64(launcherScript)
+
+  // Staging may take long enough for the host to be re-probed or SSH config to change. Perform the
+  // last checks immediately before invoking the direct launcher. There is no await between this
+  // validation and runner.run below, so an in-process scheduler reclassification cannot interleave.
+  try {
+    await revalidateInputContentIdentities(binding.inputs)
+    const hostForTarget = await hostRepository.get(job.provider_id)
+    if (!hostForTarget) throw new Error('The approved compute host no longer exists.')
+    const finalTarget = await resolveSshTarget(hostForTarget.sshAlias, hostForTarget.sshOverrides)
+    const finalHost = await hostRepository.get(job.provider_id)
+    if (!finalHost) throw new Error('The approved compute host no longer exists.')
+    assertApprovedHostAndTarget(binding, finalHost, finalTarget)
+    target = finalTarget
+  } catch (error) {
+    const updated = await jobRepository.update(jobId, {
+      status: 'error',
+      errorCode: 'approval_stale',
+      stderrTail: error instanceof Error ? error.message : String(error),
+      finishedAt: new Date()
+    })
+    onJobUpdated?.(updated)
+    return
+  }
 
   // One SSH command: mkdir workdir, write scripts via base64 pipes, launch detached, echo pid.
   // Stdout = the pid (we echo it last).

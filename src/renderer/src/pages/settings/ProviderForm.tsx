@@ -268,19 +268,19 @@ const ProviderForm = ({
                 <span>
                   {value.type === 'codex-shared'
                     ? 'Import existing Codex sign-in'
-                    : 'Sign in with Open Science'}
+                    : 'Sign in with Research Agent'}
                 </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="codex-shared">Import existing Codex sign-in</SelectItem>
-                <SelectItem value="codex-isolated">Sign in with Open Science</SelectItem>
+                <SelectItem value="codex-isolated">Sign in with Research Agent</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <p className="text-xs text-muted-foreground">
             {value.type === 'codex-shared'
-              ? "Copies Codex authentication and, when compatible, the active provider's non-secret loopback route into Open Science app data. Other global config, Skills and sessions are not imported."
-              : 'Stores a separate Codex login in Open Science app data without changing your Codex CLI profile.'}
+              ? "Copies Codex authentication and, when compatible, the active provider's non-secret loopback route into Research Agent app data. Other global config, Skills and sessions are not imported."
+              : 'Stores a separate Codex login in Research Agent app data without changing your Codex CLI profile.'}
           </p>
         </div>
       ) : isClaudeSubscription ? (
@@ -313,7 +313,7 @@ const ProviderForm = ({
             <p className="text-xs text-muted-foreground">
               {value.type === 'claude-shared'
                 ? 'Recommended. Uses your existing Claude login from ~/.claude. Sign in once via browser OAuth and use across all Claude tools.'
-                : 'Advanced. Signs in through the browser and stores a separate Claude login in Open Science, completely isolated from your personal Claude profile.'}
+                : 'Advanced. Signs in through the browser and stores a separate Claude login in Research Agent, completely isolated from your personal Claude profile.'}
             </p>
             <div className="space-y-1.5 border-t border-border-200 pt-3">
               <p className="text-xs text-muted-foreground">
@@ -425,7 +425,7 @@ const ProviderForm = ({
               <label className="space-y-0.5" htmlFor="provider-reasoning-effort">
                 <span className="block text-xs font-medium">Reasoning effort</span>
                 <span className="block text-xs text-muted-foreground">
-                  Choose the exact effort levels accepted by this model. Open Science maps five
+                  Choose the exact effort levels accepted by this model. Research Agent maps five
                   relative strengths onto them, then sends the selected level using the request
                   format below. Disable when the model does not accept an effort parameter.
                 </span>

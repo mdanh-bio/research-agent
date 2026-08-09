@@ -330,7 +330,7 @@ describe('SettingsPage layout', () => {
     expect(dialog?.className).toContain('overscroll-contain')
 
     // Left navigation grouped as Capabilities (Skills, Connectors, Specialists, Compute, Network)
-    // and Workspace (Model, Agent, Permissions, Runtimes, Storage, General).
+    // and Workspace (Model, Routing, Agent, Permissions, Runtimes, Storage, General).
     // Remote access stays isolated and Archived is anchored at the navigation bottom.
     const nav = document.body.querySelector('nav[aria-label="Settings"]')
     expect(nav).not.toBeNull()
@@ -342,23 +342,26 @@ describe('SettingsPage layout', () => {
     expect(nav?.textContent).toContain('Workspace')
     expect(nav?.textContent).toContain('Remote access')
     const navItems = nav?.querySelectorAll('li') ?? []
-    expect(navItems).toHaveLength(13)
+    expect(navItems).toHaveLength(14)
     expect(navItems[0]?.textContent).toContain('Skills')
     expect(navItems[1]?.textContent).toContain('Connectors')
     expect(navItems[2]?.textContent).toContain('Specialists')
     expect(navItems[3]?.textContent).toContain('Compute')
     expect(navItems[4]?.textContent).toContain('Network')
     expect(navItems[5]?.textContent).toContain('Model')
-    expect(navItems[6]?.textContent).toContain('Agent')
-    expect(navItems[7]?.textContent).toContain('Permissions')
-    expect(navItems[8]?.textContent).toContain('Runtimes')
-    expect(navItems[9]?.textContent).toContain('Storage')
-    expect(navItems[10]?.textContent).toContain('General')
-    expect(navItems[11]?.textContent).toContain('Remote control')
-    expect(navItems[12]?.textContent).toContain('Archived')
+    expect(navItems[6]?.textContent).toContain('Routing')
+    expect(navItems[7]?.textContent).toContain('Agent')
+    expect(navItems[8]?.textContent).toContain('Permissions')
+    expect(navItems[9]?.textContent).toContain('Runtimes')
+    expect(navItems[10]?.textContent).toContain('Storage')
+    expect(navItems[11]?.textContent).toContain('General')
+    expect(navItems[12]?.textContent).toContain('Remote control')
+    expect(navItems[13]?.textContent).toContain('Archived')
     const modelNavButton = navButton('Model')
+    const routingNavButton = navButton('Routing')
     const agentNavButton = navButton('Agent')
     expect(modelNavButton?.querySelector('.lucide-brain')).not.toBeNull()
+    expect(routingNavButton?.querySelector('.lucide-route')).not.toBeNull()
     expect(agentNavButton?.querySelector('.lucide-bot')).not.toBeNull()
     expect(modelNavButton?.className).toContain('h-8')
     expect(agentNavButton?.className).toContain('h-8')
@@ -390,6 +393,18 @@ describe('SettingsPage layout', () => {
       (button) => button.textContent?.trim() === 'Add provider'
     )
     expect(addRow?.className).toContain('border-dashed')
+  })
+
+  it('opens the explicitly inactive routing foundation from Workspace navigation', async () => {
+    await act(async () => root.render(<SettingsPage open onClose={vi.fn()} />))
+    await act(async () => navButton('Routing')?.click())
+
+    expect(document.body.querySelector('h2:not(.sr-only)')?.textContent).toBe('Routing')
+    expect(
+      document.body.querySelector('[data-routing-status]')?.getAttribute('data-routing-status')
+    ).toBe('foundation_not_active')
+    expect(document.body.textContent).toContain('Foundation / not active')
+    expect(document.body.querySelector('[aria-label="Shipped profile mappings"]')).not.toBeNull()
   })
 
   it('opens the Permissions panel from Workspace navigation', async () => {

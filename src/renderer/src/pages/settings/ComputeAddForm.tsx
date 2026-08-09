@@ -5,7 +5,13 @@ import type { CreateComputeHostRequest, SshOverrides } from '../../../../shared/
 import { DETAILS_DOC_MAX_LENGTH } from '../../../../shared/compute'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useComputeStore } from '@/stores/compute-store'
 
@@ -86,7 +92,7 @@ export function ComputeAddForm({ onCreated, onCancel }: ComputeAddFormProps): Re
     <div className="p-5">
       <p className="mb-5 text-[13px] leading-5 text-muted-foreground">
         Pick a host alias from your <code className="font-mono text-xs">~/.ssh/config</code>, or
-        type one. Open Science will use it as a compute provider via your existing SSH key — no
+        type one. Research Agent will use it as a compute provider via your existing SSH key — no
         credentials are copied.
       </p>
 
@@ -100,9 +106,7 @@ export function ComputeAddForm({ onCreated, onCancel }: ComputeAddFormProps): Re
           >
             <SelectTrigger aria-label="Pick a host from ~/.ssh/config">
               <SelectValue
-                placeholder={
-                  sshAliases.length === 0 ? 'No hosts in ~/.ssh/config' : 'Pick a host…'
-                }
+                placeholder={sshAliases.length === 0 ? 'No hosts in ~/.ssh/config' : 'Pick a host…'}
               />
             </SelectTrigger>
             <SelectContent>
@@ -130,7 +134,7 @@ export function ComputeAddForm({ onCreated, onCancel }: ComputeAddFormProps): Re
         <div className="flex flex-col gap-1.5">
           <div className="flex items-baseline justify-between gap-2">
             <label htmlFor="compute-details" className="text-sm font-medium text-foreground">
-              Anything Open Science should know? (optional)
+              Anything Research Agent should know? (optional)
             </label>
             <span
               className={`text-xs ${detailsTooLong ? 'text-destructive' : 'text-muted-foreground'}`}
@@ -168,7 +172,7 @@ export function ComputeAddForm({ onCreated, onCancel }: ComputeAddFormProps): Re
           {advancedOpen ? (
             <div className="flex flex-col gap-4 border-t border-border px-3 py-3">
               <p className="text-xs text-muted-foreground">
-                By default Open Science resolves connection details via{' '}
+                By default Research Agent resolves connection details via{' '}
                 <code className="font-mono">ssh -G &lt;alias&gt;</code> from your{' '}
                 <code className="font-mono">~/.ssh/config</code>. Set these only if you need to
                 override that.

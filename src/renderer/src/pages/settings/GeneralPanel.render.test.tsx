@@ -51,24 +51,24 @@ beforeEach(() => {
   document.body.appendChild(container)
   root = createRoot(container)
   useUpdateStore.setState({
-    appInfo: { name: 'Open Science', version: '0.4.0', copyright: '© 2026 AIPOCH' },
+    appInfo: { name: 'Research Agent', version: '0.4.0', copyright: '© 2026 mdanh-bio' },
     status: { state: 'up-to-date', current: '0.4.0', latest: '0.4.0' }
   })
   cliApi = {
     getStatus: vi.fn().mockResolvedValue({
       installed: false,
-      target: '/home/u/.local/bin/open-science',
+      target: '/home/u/.local/bin/research-agent',
       onPath: true
     }),
     install: vi.fn().mockResolvedValue({
       installed: true,
-      target: '/home/u/.local/bin/open-science',
+      target: '/home/u/.local/bin/research-agent',
       onPath: false,
-      pathHint: 'Add /home/u/.local/bin to your PATH to use "open-science".'
+      pathHint: 'Add /home/u/.local/bin to your PATH to use "research-agent".'
     }),
     uninstall: vi.fn().mockResolvedValue({
       installed: false,
-      target: '/home/u/.local/bin/open-science',
+      target: '/home/u/.local/bin/research-agent',
       onPath: true
     })
   }
@@ -140,7 +140,7 @@ describe('GeneralPanel command line tool', () => {
 
     expect(cliApi.install).toHaveBeenCalledTimes(1)
     // The status pane now shows the installed path and the manual PATH hint from the result.
-    expect(container.textContent).toContain('/home/u/.local/bin/open-science')
+    expect(container.textContent).toContain('/home/u/.local/bin/research-agent')
     expect(container.textContent).toContain('Add /home/u/.local/bin to your PATH')
     // The button flips to the uninstall affordance once installed.
     expect(findButton(/uninstall command/i)).toBeDefined()
@@ -149,7 +149,7 @@ describe('GeneralPanel command line tool', () => {
   it('shows Uninstall when already installed and calls uninstall on click', async () => {
     cliApi.getStatus.mockResolvedValue({
       installed: true,
-      target: '/home/u/.local/bin/open-science',
+      target: '/home/u/.local/bin/research-agent',
       onPath: true
     })
 

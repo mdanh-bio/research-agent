@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { createReadStream, type Dirent } from 'node:fs'
 import {
@@ -37,7 +37,7 @@ import { stripCodexCredentialEnv } from './process-tree'
 import { terminateProcessTree } from '../process-tree'
 
 export const CODEX_ACP_VERSION = '1.1.4'
-export const CODEX_VERSION = '0.144.6'
+export const CODEX_VERSION = '0.147.0'
 
 const log = createLogger('managed-codex')
 const MAX_INITIALIZE_DIAGNOSTIC_CHARS = 4 * 1024
@@ -47,17 +47,31 @@ export const CODEX_ACP_INTEGRITY =
 
 export const CODEX_INTEGRITIES: Readonly<Record<string, string>> = {
   'darwin-arm64':
-    'sha512-6zgvh70MzBNSeT17HEhSOrmmGGZGAKzSC7x6JAq+edkJkdPYA9P0I1tG7aJ49GlBkBxuC+MKBH1qm6+2Cghcww==',
+    'sha512-BEUVkiOW7kLcRyrMLfAr/h9wF8sRVJyZDy6OHtVn6QGDXiv3BvAZVTY1Pu9xF7KdIdkYXbp4uayN0aDQQaAUJw==',
   'darwin-x64':
-    'sha512-THRyPG0zSU6M8NQAge1LHEHsJDnoH4BpKsfJHB/qe3Fm+Wf6zqAmWJFlOKzBm27m0K2Hq3za4Ac2I5p5i4yp/A==',
+    'sha512-Tb8McE5SvJIH0Vs5R6sq7u+quiC931yan2KOOl6km1OdZ82+Wi7eF5XrSFPs5CF7xCgoIK4Vs+byMbT5hN+ZUw==',
   'linux-arm64':
-    'sha512-PGiLXMN+2IQRkf7tOLi64dMInjU1pRLbz0Rwfj/yt2Y97SZQqAjFQoi2wmswmqtqMDnfwCPTC1DRXVQkvU6T6Q==',
+    'sha512-SLC1JXw2TYfr/c3HhrJubyyLelq7vTOLWVmiThFA+z0+WgzCPmaseJ/kzDD3Gge/TO7fCnnj7UcPmC0d2c8XAg==',
   'linux-x64':
-    'sha512-4E7EnzCg0OnBxCyYnwJ+qnZwWHYe0YScr5ucKWbngE9u4+0XrpWELqq2Kn9jl5GZK8MDjU7PrJwFIwusHOHjuw==',
+    'sha512-0W9MBxPpWW0cSkNqrTDN2jR7rzzT7oNMhQY5446lT2Lw5cz5yhDTck4Va9rjkQEm+HlFzP/dmEMSZbXfJsINmw==',
   'win32-arm64':
-    'sha512-SpMjXJLW43JzMP0K62mVcYfmFcpk0BK4AOgYmWSfyZHs3iRtHMd0UYw7605n/9lwkT2EqbwQLT2omZFeKJFzwA==',
+    'sha512-e2ZstJ8zT8Rm1nvR7CUVO+Gr3cTChE41+VfOzGhynzDXEoW0wfbjUQbc2bWbh1arG94LMm4y3dqBtUIbSrfeGA==',
   'win32-x64':
-    'sha512-dN39VnjEthKz5io1RNWwZDtErdSn07nW3pGUgvlA6DMxgm/nuGaIAZO/sG/Hgxq/x5j9HteAENfrFgVkpZ0lFg=='
+    'sha512-oT7Ss5fAPf2fiWE9QNURqZcQGAAawSVxmIUdgPzckq4KFZAM+pRz9JbM4Rr498CjtbNgTOjWvDJ+DXvIBSfOPA=='
+}
+
+// SHA-256 identities of the Codex executable extracted from the exact npm tarballs authenticated by
+// CODEX_INTEGRITIES above. These values were derived only after each complete 0.147.0 platform
+// tarball matched its code-owned SHA-512 SRI. Keep the version, package SRI, and executable identity
+// in one review when updating Codex: the code-owned executable identity (not the co-located runtime
+// manifest) is the runtime authenticity anchor.
+export const CODEX_BINARY_SHA256: Readonly<Record<string, string>> = {
+  'darwin-arm64': '19c4f144c5226a9f17c58e6f0fa854843b0f77a6eb420f40e2745a12f10f5d37',
+  'darwin-x64': '8080a42da4cef9c4216dace512f29acfe2e526aeeec2a0ce450e5a2b18b84d8a',
+  'linux-arm64': 'e23d0be344d2496986c985cd3db61e6f649b1ddd900e6afc1b5aaabbffcbb4e2',
+  'linux-x64': 'cb0a15567e9a60a5820d54b0f6ae86d504dc3805c1eab21a47f70e3eb7b73a40',
+  'win32-arm64': '1f0e8c2dd3c6b471e985fac76908366c1cf31155094fde606fb2d3052cf00584',
+  'win32-x64': '935a1911ed2556e4ffcec995f4886ac2ac425863ba26fed264df62e30272ad9d'
 }
 
 export type ManagedCodexPlatform = {
@@ -104,10 +118,27 @@ export const managedCodexBinary = (
 ): string =>
   join(managedCodexRoot(dataRoot), 'codex', 'vendor', platform.target, 'bin', platform.binName)
 
+export const managedCodexRuntimeManifest = (dataRoot: string): string =>
+  join(managedCodexRoot(dataRoot), 'runtime-manifest.json')
+
+export type ManagedCodexRuntimeManifest = Readonly<{
+  schemaVersion: 1
+  codexVersion: string
+  platformKey: string
+  codexPackageIntegrity: string
+  binarySha256: string
+}>
+
 const adapterEntryInRoot = (root: string): string => join(root, 'adapter', 'dist', 'index.js')
 
 const codexBinaryInRoot = (root: string, platform: ManagedCodexPlatform): string =>
   join(root, 'codex', 'vendor', platform.target, 'bin', platform.binName)
+
+const sha256File = async (path: string): Promise<string> => {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest('hex')
+}
 
 const CODEX_ACP_CONTEXT_USAGE_SOURCE =
   '    const used = this.sessionState.lastTokenUsage?.totalTokens;'
@@ -1308,6 +1339,29 @@ export const installManagedCodex = async ({
       // Smoke home lives in scratch (auto-removed), NEVER inside stagedRoot: stagedRoot is moved to
       // the final runtime, so anything Codex might write here must not ride along into the install.
       await verifyPair(stagedAdapter, stagedCodex, join(scratch, 'smoke-home'))
+
+      const binarySha256 = await sha256File(stagedCodex)
+      const shippedPackageIntegrity = CODEX_INTEGRITIES[platform.key]
+      const shippedBinarySha256 = CODEX_BINARY_SHA256[platform.key]
+      if (
+        codex.integrity === shippedPackageIntegrity &&
+        (!shippedBinarySha256 || binarySha256 !== shippedBinarySha256)
+      ) {
+        throw new Error('Installed Codex binary did not match the pinned executable identity')
+      }
+
+      const runtimeManifest: ManagedCodexRuntimeManifest = {
+        schemaVersion: 1,
+        codexVersion: CODEX_VERSION,
+        platformKey: platform.key,
+        codexPackageIntegrity: codex.integrity,
+        binarySha256
+      }
+      await writeFile(
+        join(stagedRoot, 'runtime-manifest.json'),
+        `${JSON.stringify(runtimeManifest, null, 2)}\n`,
+        { mode: 0o600 }
+      )
 
       reachedLocalInstall = true
       await replaceDirectory(stagedRoot, managedCodexRoot(dataRoot))

@@ -32,6 +32,7 @@ type WorkflowJob = {
 
 type Workflow = {
   jobs: Record<string, WorkflowJob>
+  permissions?: Record<string, string>
   on?: {
     push?: { branches?: string[]; tags?: string[] }
     workflow_call?: unknown
@@ -41,6 +42,9 @@ type Workflow = {
 
 const readWorkflow = (name: string): Workflow =>
   load(readFileSync(join(process.cwd(), '.github', 'workflows', name), 'utf8')) as Workflow
+
+const readWorkflowText = (name: string): string =>
+  readFileSync(join(process.cwd(), '.github', 'workflows', name), 'utf8')
 
 const findStep = (job: WorkflowJob, name: string): WorkflowStep => {
   const step = job.steps?.find((candidate) => candidate.name === name)
@@ -150,10 +154,9 @@ describe('post-merge Windows validation', () => {
     const macos = findStep(job, 'Smoke test macOS packages')
     const linux = findStep(job, 'Smoke test Linux packages')
     const evidence = findStep(job, 'Record platform certification evidence')
-    const notarize = readWorkflow('notarize-mac.yml').jobs.notarize
-    const notarizeDryRun = readWorkflow('notarize-dryrun.yml').jobs.notarize
-    const finalMacos = findStep(notarize, 'Smoke test final macOS packages')
-    const refreshedMacosEvidence = findStep(notarize, 'Refresh macOS certification evidence')
+    const macVerification = readWorkflow('notarize-mac.yml').jobs.verify
+    const notarizeDryRun = readWorkflow('notarize-dryrun.yml').jobs.verify
+    const finalMacos = findStep(macVerification, 'Verify package structure and local signature')
 
     expect(setup.run).toContain('"name":"macos-arm64","os":"macos-26"')
     expect(setup.run).toContain('"name":"macos-x64","os":"macos-26-intel"')
@@ -161,11 +164,15 @@ describe('post-merge Windows validation', () => {
       "${{ matrix.platform == 'mac' && '12.0' || '' }}"
     )
     expect(packaged.id).toBe('packaged_app')
-    expect(packaged.run).toContain('Open Science.app/Contents/MacOS/Open Science')
-    expect(packaged.run).toContain('win-unpacked/open-science.exe')
-    expect(packaged.run).toContain('linux-unpacked/open-science')
-    expect(p0.env?.OPEN_SCIENCE_E2E_EXECUTABLE).toBe('${{ steps.packaged_app.outputs.executable }}')
-    expect(visual.env?.OPEN_SCIENCE_E2E_EXECUTABLE).toBe(
+    expect(packaged.run).toContain('Research Agent.app/Contents/MacOS/Research Agent')
+    expect(packaged.run).toContain('win-unpacked/research-agent.exe')
+    expect(packaged.run).toContain('linux-unpacked/research-agent')
+    expect(linux.run).toContain('apt-get remove --yes research-agent')
+    expect(linux.run).toContain('--installed-executable /usr/bin/research-agent')
+    expect(p0.env?.RESEARCH_AGENT_E2E_EXECUTABLE).toBe(
+      '${{ steps.packaged_app.outputs.executable }}'
+    )
+    expect(visual.env?.RESEARCH_AGENT_E2E_EXECUTABLE).toBe(
       '${{ steps.packaged_app.outputs.executable }}'
     )
     expect(p0.if).toContain("matrix.name == 'macos-arm64'")
@@ -180,20 +187,16 @@ describe('post-merge Windows validation', () => {
     expect(evidence.run).toContain('visual_regression=not-applicable')
     expect(evidence.run).toContain('--electron-p0 "$electron_p0"')
     expect(evidence.run).toContain('--visual-regression "$visual_regression"')
-    expect(finalMacos.run).toBe(
-      'node scripts/macos-package-smoke.mjs --artifact-dir mac --gatekeeper'
-    )
-    expect(notarize['runs-on']).toBe('${{ matrix.os }}')
-    expect(notarize.strategy?.matrix).toEqual({
+    expect(finalMacos.run).toBe('node scripts/macos-package-smoke.mjs --artifact-dir mac')
+    expect(macVerification['runs-on']).toBe('${{ matrix.os }}')
+    expect(macVerification.strategy?.matrix).toEqual({
       include: [
         { arch: 'arm64', os: 'macos-15' },
         { arch: 'x64', os: 'macos-15-intel' }
       ]
     })
-    expect(refreshedMacosEvidence.run).toContain('--package-smoke passed')
-    expect(refreshedMacosEvidence.run).toContain("matrix.arch == 'arm64'")
-    expect(refreshedMacosEvidence.if).toContain('inputs.certified_build')
-    expect(notarizeDryRun.with?.certified_build).toBe(false)
+    expect(notarizeDryRun.uses).toBe('./.github/workflows/notarize-mac.yml')
+    expect(notarizeDryRun).not.toHaveProperty('secrets')
     expect(names.indexOf('Record platform certification evidence')).toBeGreaterThan(
       names.indexOf('Smoke test macOS packages')
     )
@@ -203,9 +206,10 @@ describe('post-merge Windows validation', () => {
     expect(names.indexOf('Upload build artifacts')).toBeGreaterThan(
       names.indexOf('Record platform certification evidence')
     )
-    expect(notarize.steps?.indexOf(refreshedMacosEvidence)).toBeGreaterThan(
-      notarize.steps?.indexOf(finalMacos) ?? -1
-    )
+    expect(findStep(macVerification, 'Retain verified Mac artifacts').with).toMatchObject({
+      'retention-days': 1,
+      'if-no-files-found': 'error'
+    })
   })
 
   it('uploads built packages before enforcing collected certification outcomes', () => {
@@ -258,7 +262,7 @@ describe('post-merge Windows validation', () => {
     expect(commands.some((command) => command.startsWith('npm run typecheck'))).toBe(false)
   })
 
-  it('records unsigned Windows update diagnostics without blocking publishing', () => {
+  it('keeps Windows update diagnostics independent from the private Mac verification workflow', () => {
     const release = readWorkflow('release.yml')
     const upgrade = readWorkflow('windows-upgrade-smoke.yml').jobs['windows-upgrade-smoke']
 
@@ -298,16 +302,8 @@ describe('post-merge Windows validation', () => {
     ).toMatchObject({ id: 'installer', 'continue-on-error': true })
     expect(release.jobs['windows-full-test']).toBeUndefined()
     expect(release.jobs['windows-upgrade-smoke']).toBeUndefined()
-    expect(release.jobs.publish.needs).toEqual(['build', 'notarize-mac'])
-    expect(
-      findStep(release.jobs.publish, 'Aggregate release certification evidence').run
-    ).not.toContain('--require-signed-windows')
-    expect(
-      findStep(release.jobs.publish, 'Aggregate release certification evidence').run
-    ).not.toContain('--require-windows-update')
-    expect(
-      findStep(release.jobs.publish, 'Aggregate release certification evidence').run
-    ).not.toContain('--windows-full-suite')
+    expect(Object.keys(release.jobs)).toEqual(['build'])
+    expect(release.jobs.build.with).toEqual({ mac_only: true })
     expect(findStep(upgrade, 'Record Windows update-drill evidence').run).toContain(
       'write-windows-update'
     )
@@ -324,97 +320,54 @@ describe('post-merge Windows validation', () => {
       })
     })
     expect(findStep(upgrade, 'Report Windows update-drill outcome').run).toBe('exit 1')
-    expect(findStep(release.jobs.publish, 'Dispatch advisory Windows upgrade smoke')).toMatchObject(
-      {
-        'continue-on-error': true,
-        run: expect.stringContaining('event_type=windows-upgrade-smoke')
-      }
-    )
-    expect(release.jobs.mirror).toBeUndefined()
+    expect(readWorkflowText('release.yml')).not.toContain('event_type=windows-upgrade-smoke')
+    expect(readWorkflowText('release.yml')).not.toContain('softprops/action-gh-release')
   })
 
-  it('validates stable desktop tags on main before starting platform builds', () => {
+  it('keeps private release verification manual, Mac-only, read-only, and secret-free', () => {
     const release = readWorkflow('release.yml')
-    const preflight = release.jobs['release-preflight']
-    const checkout = findStep(preflight, 'Checkout')
-    const validateTag = findStep(preflight, 'Validate desktop release tag')
-    const verifyMain = findStep(preflight, 'Verify release commit is on main')
-    const stableTagCondition = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')"
 
-    expect(preflight).toMatchObject({
-      permissions: { contents: 'read' },
-      'runs-on': 'ubuntu-latest'
+    expect(release.on).toEqual({ workflow_dispatch: null })
+    expect(release.permissions).toEqual({ contents: 'read' })
+    expect(Object.keys(release.jobs)).toEqual(['build'])
+    expect(release.jobs.build).toMatchObject({
+      uses: './.github/workflows/build.yml',
+      with: { mac_only: true }
     })
-    expect(checkout).toMatchObject({
-      uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
-      with: { 'fetch-depth': 0 }
-    })
-    expect(validateTag.if).toBe(stableTagCondition)
-    expect(validateTag.run).toContain("require('./package.json').version")
-    expect(validateTag.run).toContain('$GITHUB_REF_NAME')
-    expect(verifyMain).toMatchObject({
-      if: stableTagCondition,
-      run: 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main'
-    })
-    expect(release.jobs.build.needs).toBe('release-preflight')
-    expect(release.jobs.build.with?.require_windows_signing).toBeUndefined()
-    expect(release.jobs['notarize-mac'].if).toBe(stableTagCondition)
-    expect(release.jobs['windows-upgrade-smoke']).toBeUndefined()
-    expect(release.jobs.publish.if).toBe(stableTagCondition)
+    expect(release.jobs.build).not.toHaveProperty('secrets')
+    expect(readWorkflowText('release.yml')).not.toMatch(/push:\s*\n\s*tags:/)
+    expect(readWorkflowText('release.yml')).not.toContain('contents: write')
   })
 
-  it('locks mirror dependencies and completes local transforms before configuring credentials', () => {
+  it('runs website mirror transform tests locally without cloud credentials', () => {
     const workflow = readWorkflow('mirror-to-website.yml')
-    const mirror = workflow.jobs.mirror
-    const stepNames = mirror.steps?.map(({ name }) => name) ?? []
-    const install = findStep(mirror, 'Install manifest dependencies')
-    const configureIndex = stepNames.indexOf('Configure AWS credentials')
+    const verify = workflow.jobs.verify
 
-    expect(workflow.on).toEqual({
-      workflow_dispatch: {
-        inputs: {
-          tag: {
-            description: 'Release tag to mirror (e.g. v0.1.2)',
-            required: true
-          }
-        }
-      }
-    })
-    expect(install.run).toBe(
-      'npm ci --ignore-scripts --omit=dev --omit=optional --no-audit --no-fund'
+    expect(workflow.on).toEqual({ workflow_dispatch: null })
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+    expect(findStep(verify, 'Install dependencies without package scripts').run).toBe(
+      'npm ci --ignore-scripts --no-audit --no-fund'
     )
-    expect(mirror.steps?.filter(({ run }) => run?.includes('npm install'))).toEqual([])
-    expect(configureIndex).toBeGreaterThan(stepNames.indexOf('Install manifest dependencies'))
-    expect(configureIndex).toBeGreaterThan(
-      stepNames.indexOf('Collect historical Windows blockmaps')
+    expect(findStep(verify, 'Test manifest and feed transforms').run).toContain(
+      'scripts/generate-version-manifest.test.ts'
     )
-    expect(configureIndex).toBeGreaterThan(stepNames.indexOf('Generate version.json'))
-    expect(configureIndex).toBeGreaterThan(stepNames.indexOf('Rewrite update feed paths'))
-    expect(configureIndex).toBeGreaterThan(
-      stepNames.indexOf('Inject release notes into update feeds')
+    expect(findStep(verify, 'Test manifest and feed transforms').run).toContain(
+      'scripts/inject-feed-notes.test.ts'
     )
-    expect(stepNames.indexOf('Sync installers to versioned path')).toBeGreaterThan(configureIndex)
-    expect(stepNames.indexOf('Backfill historical Windows blockmaps')).toBeGreaterThan(
-      configureIndex
-    )
-    expect(stepNames.indexOf('Upload version.json')).toBeGreaterThan(configureIndex)
-    expect(stepNames.indexOf('Upload update feed to channel root')).toBeGreaterThan(configureIndex)
-    const historical = findStep(mirror, 'Collect historical Windows blockmaps')
-    expect(historical.run).toContain('gh api --paginate')
-    expect(historical.run).toContain('> "$blockmap_index"')
-    expect(historical.run).toContain('done < "$blockmap_index"')
-    expect(historical.run).not.toContain('done < <(')
-    expect(historical.run).toContain('application/octet-stream')
-    expect(historical.run).toContain('historical-blockmaps/$version/$name')
-    expect(historical.run).toContain('gzip -t "$target"')
-    const backfill = findStep(mirror, 'Backfill historical Windows blockmaps')
-    expect(backfill.run).toContain('releases/$version/$(basename "$blockmap")')
+    const text = readWorkflowText('mirror-to-website.yml')
+    expect(text).not.toMatch(/S3_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET)/)
+    expect(text).not.toMatch(/\baws\s+s3(?:api)?\b/i)
+    expect(text).not.toMatch(/\bgh\s+release\b/i)
   })
 
   it('pins external actions in every changed release workflow', () => {
     for (const workflowName of [
       'release.yml',
       'mirror-to-website.yml',
+      'stage-runtime-bundle.yml',
+      'nightly-publish.yml',
+      'notarize-dryrun.yml',
+      'notarize-mac.yml',
       'windows-upgrade-smoke.yml'
     ]) {
       const workflow = readWorkflow(workflowName)
@@ -422,7 +375,6 @@ describe('post-merge Windows validation', () => {
         (job.steps ?? []).flatMap(({ uses }) => (uses?.startsWith('./') || !uses ? [] : [uses]))
       )
 
-      expect(references.length).toBeGreaterThan(0)
       expect(references.every((reference) => /@[0-9a-f]{40}$/i.test(reference))).toBe(true)
     }
   })

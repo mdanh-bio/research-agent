@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import type { CloseActionPreference } from '../../shared/window-controls'
+import type { RouteDecision } from '../../shared/model-routing'
 
 import type {
   ClaudeDetectResult,
@@ -111,6 +112,14 @@ export type UninstallResult = {
   snapshot: SettingsSnapshot
   activeBackendAffected: boolean
 }
+
+// Avoid touching the operating-system credential vault during ordinary startup. On macOS an
+// ad-hoc-signed build can block in Keychain authorization even when a fresh/keyless profile has
+// nothing to migrate. The vault is needed here only for the two legacy `plain:` shapes owned by
+// this whole-settings migration path; current encrypted refs and absent refs require no work.
+const hasLegacyKeyRefs = (settings: StoredSettings): boolean =>
+  settings.providers.some((provider) => provider.keyRef?.startsWith('plain:') === true) ||
+  settings.connectors?.ncbiApiKeyRef?.startsWith('plain:') === true
 
 export type SettingsServiceOptions = {
   repository?: SettingsRepository
@@ -368,7 +377,7 @@ class SettingsService {
   }
 
   private async migrateLegacyKeyRefs(settings: StoredSettings): Promise<StoredSettings> {
-    if (!isEncryptionAvailable()) return settings
+    if (!hasLegacyKeyRefs(settings) || !isEncryptionAvailable()) return settings
     let changed = await this.providers.migrateLegacyKeyRefs(settings.providers)
 
     changed = (await this.connectors.migrateLegacyNcbiKeyRef(settings.connectors)) || changed
@@ -968,6 +977,16 @@ class SettingsService {
     context: AgentBackendResolutionContext = {}
   ): Promise<ResolvedAgentBackend> {
     return this.backendResolver.resolveExplicitTarget(target, context)
+  }
+
+  // Deliberately separate from resolveAgentBackend: exposing this bridge does not make routing the
+  // active conversation path. A future orchestrator can opt a newly-owned run into an already
+  // resolved decision without mutating the user's current framework/provider/model settings.
+  async resolveRoutedAgentBackend(
+    decision: RouteDecision,
+    context: AgentBackendResolutionContext = {}
+  ): Promise<ResolvedAgentBackend> {
+    return this.backendResolver.resolveRoutedTarget(decision.target, context)
   }
 
   async resolveAgentBackend(

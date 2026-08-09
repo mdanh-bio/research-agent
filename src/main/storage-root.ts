@@ -3,6 +3,8 @@ import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path'
 
 import { app } from 'electron'
 
+import { readResearchAgentEnvironment } from '../shared/environment-overrides'
+
 import {
   DEV_SESSION_DIR_NAME,
   PROD_SESSION_DIR_NAME,
@@ -12,10 +14,14 @@ import { hasPendingMigrationMarker } from './storage/migration-marker'
 import { RELOCATABLE_DATA_DIRS } from './storage/data-directories'
 
 const resolveE2eStorageRoot = (): string | undefined => {
-  const root = process.env.OPEN_SCIENCE_E2E_STORAGE_ROOT?.trim()
+  const root = readResearchAgentEnvironment(
+    process.env,
+    'RESEARCH_AGENT_E2E_STORAGE_ROOT',
+    'OPEN_SCIENCE_E2E_STORAGE_ROOT'
+  )?.trim()
   if (!root) return undefined
   if (!isAbsolute(root)) {
-    throw new Error('OPEN_SCIENCE_E2E_STORAGE_ROOT must be an absolute path.')
+    throw new Error('RESEARCH_AGENT_E2E_STORAGE_ROOT must be an absolute path.')
   }
   return normalize(root)
 }
@@ -28,11 +34,15 @@ const resolveStorageRoot = (): string => {
   const e2eRoot = resolveE2eStorageRoot()
   if (e2eRoot) return e2eRoot
 
-  const previewRoot = process.env.OPEN_SCIENCE_STORAGE_ROOT?.trim()
+  const previewRoot = readResearchAgentEnvironment(
+    process.env,
+    'RESEARCH_AGENT_STORAGE_ROOT',
+    'OPEN_SCIENCE_STORAGE_ROOT'
+  )?.trim()
 
   if (!app.isPackaged && previewRoot) {
     if (!isAbsolute(previewRoot)) {
-      throw new Error('OPEN_SCIENCE_STORAGE_ROOT must be an absolute path.')
+      throw new Error('RESEARCH_AGENT_STORAGE_ROOT must be an absolute path.')
     }
 
     return normalize(previewRoot)
@@ -49,7 +59,7 @@ const resolveConfigRoot = resolveStorageRoot
 
 // Visible, no-space data folder name. NO space: runtime/ holds conda/venv whose tools break on
 // spaced paths. dev gets a suffix so it never shares data with a packaged build.
-const dataFolderName = (): string => (app.isPackaged ? 'OpenScience' : 'OpenScience-DEV')
+const dataFolderName = (): string => (app.isPackaged ? 'ResearchAgent' : 'ResearchAgent-DEV')
 
 // The data root the app derives from a user-picked (or default) parent directory: always
 // `<parent>/<dataFolderName()>`. The app never lets the user point directly at a data root - only

@@ -13,8 +13,8 @@ import { PreviewStateRepository } from './preview-repository'
 import { createProjectDbClient, ensureProjectSchema } from './prisma-client'
 
 // Matches the mocked app.getPath('home') + isPackaged resolution in storage-root.ts: with no
-// legacy config-root data present, computeDefaultDataRoot() is `<home>/OpenScience`.
-const DATA_ROOT = '/home/user/OpenScience'
+// legacy config-root data present, computeDefaultDataRoot() is `<home>/ResearchAgent`.
+const DATA_ROOT = '/home/user/ResearchAgent'
 
 // Proves the runtime ProjectPreviewState DDL is byte-compatible with the generated client against a
 // real (temp) SQLite database, and that the durable projection round-trips + sanitizes on read.
@@ -52,7 +52,7 @@ afterEach(async () => {
 
 describe('preview state repository (integration)', () => {
   it('round-trips per-project preview state and deletes it', async () => {
-    storageRoot = await mkdtemp(join(tmpdir(), 'open-science-preview-'))
+    storageRoot = await mkdtemp(join(tmpdir(), 'research-agent-preview-'))
 
     const client = createProjectDbClient(storageRoot)
     disconnect = () => client.$disconnect()
@@ -87,7 +87,7 @@ describe('preview state repository (integration)', () => {
   })
 
   it('persists an item path under the data root as a $DATA sentinel and decodes it back on read', async () => {
-    storageRoot = await mkdtemp(join(tmpdir(), 'open-science-preview-'))
+    storageRoot = await mkdtemp(join(tmpdir(), 'research-agent-preview-'))
 
     const client = createProjectDbClient(storageRoot)
     disconnect = () => client.$disconnect()

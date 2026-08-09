@@ -133,7 +133,9 @@ const fakeFetch = (files: Record<string, string>): FetchLike => {
 describe('fetchSkillPreview', () => {
   it('lists candidate files while downloading only SKILL.md', async () => {
     const downloads: string[] = []
-    const fetcher: FetchLike = async (url) => {
+    const requests: Array<{ url: string; headers?: Record<string, string> }> = []
+    const fetcher: FetchLike = async (url, init) => {
+      requests.push({ url, headers: init?.headers })
       if (url.includes('/contents/')) {
         return {
           ok: true,
@@ -174,6 +176,10 @@ describe('fetchSkillPreview', () => {
       files: ['SKILL.md', 'references/guide.md']
     })
     expect(downloads).toEqual(['https://raw/SKILL.md'])
+    expect(requests.map((request) => request.headers?.['User-Agent'])).toEqual([
+      'research-agent',
+      'research-agent'
+    ])
   })
 
   it('bounds GitHub preview content without preventing import', async () => {

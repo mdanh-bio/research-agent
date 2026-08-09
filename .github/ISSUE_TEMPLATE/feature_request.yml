@@ -1,13 +1,13 @@
 name: Feature request
-description: Suggest an idea or improvement for Open Science
-title: "[Feature]: "
-labels: ["enhancement"]
+description: Suggest an idea or improvement for Research Agent
+title: '[Feature]: '
+labels: ['enhancement']
 body:
   - type: markdown
     attributes:
       value: |
         Have an idea? We'd love to hear it. For open-ended ideas or questions,
-        consider starting a [Discussion](https://github.com/aipoch/open-science/discussions)
+        consider starting a [Discussion](https://github.com/mdanh-bio/research-agent/discussions)
         instead — it's a better fit for conversation.
   - type: checkboxes
     id: preflight

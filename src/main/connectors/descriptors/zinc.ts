@@ -10,7 +10,7 @@ import type { ToolDescriptor } from '../types'
 const BASE_URL = 'https://cartblanche22.docking.org'
 const FILES_BASE_URL = 'https://files.docking.org/zinc22'
 const OUTPUT_FIELDS = 'zinc_id,smiles,tranche_name,catalogs'
-const USER_AGENT = 'OpenScience/1.0 (+https://github.com/aipoch/open-science)'
+const USER_AGENT = 'ResearchAgent/1.0'
 
 // Overall submit->result budget (default/clamp mirrors upstream DEFAULT/MIN/MAX_TIMEOUT_S, pulled
 // in a bit under the MCP-style 60s transport ceiling that upstream targets).

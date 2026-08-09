@@ -29,6 +29,9 @@ import {
 // native packages are `opencode-<key>`, NOT `opencode-ai-<key>`, so the prefix differs from the wrapper.
 const OPENCODE_WRAPPER = 'opencode-ai'
 const OPENCODE_PLATFORM_PREFIX = 'opencode'
+// Research Agent pins its managed runtime so provider/model behavior is reproducible. Upgrades must
+// pass the runtime conformance suite before this value changes.
+export const OPENCODE_VERSION = '1.18.12'
 
 type OpencodePlatform = { key: string; binName: string }
 

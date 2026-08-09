@@ -3,7 +3,9 @@ import { dirname, resolve } from 'node:path'
 
 import { app } from 'electron'
 
+import { APP } from '../../shared/app-config'
 import { createLogger } from '../logger'
+import { DisabledUpdateStrategy } from './disabled-strategy'
 import { ElectronUpdaterStrategy } from './electron-updater-strategy'
 import { UpdateService } from './service'
 import type { InstallGate, UpdateStrategy } from './strategy'
@@ -54,6 +56,9 @@ export const createUpdateStrategy = (
   platform: NodeJS.Platform = process.platform,
   opts: CreateStrategyOptions = {}
 ): UpdateStrategy => {
+  const version = opts.version ?? app?.getVersion?.() ?? '0.0.0'
+  if (!APP.update.enabled) return new DisabledUpdateStrategy(version)
+
   const log = createLogger('update')
   const createInPlaceStrategy = (): ElectronUpdaterStrategy =>
     new ElectronUpdaterStrategy({
@@ -64,7 +69,6 @@ export const createUpdateStrategy = (
   if (platform === 'win32' || platform === 'linux') return createInPlaceStrategy()
 
   const isPackaged = opts.isPackaged ?? app?.isPackaged ?? false
-  const version = opts.version ?? app?.getVersion?.() ?? '0.0.0'
   if (platform === 'darwin' && macCanAutoUpdate(isPackaged, version)) {
     return createInPlaceStrategy()
   }

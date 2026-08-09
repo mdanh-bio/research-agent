@@ -10,7 +10,15 @@ export type UpdateManifest = {
 }
 
 export type UpdateState =
-  'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'applying' | 'error'
+  | 'idle'
+  | 'disabled'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'applying'
+  | 'error'
 
 // The single status the main process broadcasts and the renderer store mirrors.
 export type UpdateStatus = {

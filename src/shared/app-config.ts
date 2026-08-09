@@ -2,26 +2,26 @@
 // (GitHub star-count fetch) and the renderer (every entry-point link). Keep this UI-free — no
 // icons, no JSX — so both processes can import it and any screen reuses the same values.
 
-const GITHUB_OWNER = 'aipoch'
-const GITHUB_REPO = 'open-science'
+const GITHUB_OWNER = 'mdanh-bio'
+const GITHUB_REPO = 'research-agent'
 const GITHUB_REPO_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`
 
 export const APP = {
-  name: 'Open Science',
+  name: 'Research Agent',
   githubOwner: GITHUB_OWNER,
   githubRepo: GITHUB_REPO,
   links: {
-    website: 'https://www.aipoch.com/open-science',
+    website: GITHUB_REPO_URL,
     githubRepo: GITHUB_REPO_URL,
     githubReleases: `${GITHUB_REPO_URL}/releases`,
     githubApi: `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`,
     githubIssues: `${GITHUB_REPO_URL}/issues`,
-    discord: 'https://discord.gg/85dKfuGM9',
-    x: 'https://x.com/aipoch_ai'
+    upstream: 'https://github.com/aipoch/open-science'
   },
-  copyright: '© 2026 AIPOCH. All rights reserved.',
+  copyright: '© 2026 mdanh-bio and AIPOCH contributors.',
   update: {
-    manifestUrl: 'https://statics.aipoch.com/open-science/app/stable/version.json',
-    downloadPage: 'https://www.aipoch.com/open-science'
+    enabled: false,
+    manifestUrl: `${GITHUB_REPO_URL}/releases/latest/download/version.json`,
+    downloadPage: `${GITHUB_REPO_URL}/releases`
   }
 } as const

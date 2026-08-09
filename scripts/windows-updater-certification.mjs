@@ -30,7 +30,7 @@ import {
 } from './windows-installer-smoke.mjs'
 
 const UPDATE_TIMEOUT_MS = 180_000
-const SMOKE_ROOT_PREFIX = 'open-science-installer-smoke-updater-'
+const SMOKE_ROOT_PREFIX = 'research-agent-installer-smoke-updater-'
 
 const singleFile = async (directory, pattern, description) => {
   const matches = (await readdir(directory))
@@ -476,8 +476,8 @@ const main = async () => {
   const profileDirectory = join(root, 'profile')
   const env = windowsProfileEnvironment(profileDirectory)
   const legacyConfigRoots = [
-    win32.join(homedir(), '.open-science'),
-    win32.join(profileDirectory, '.open-science')
+    win32.join(homedir(), '.research-agent'),
+    win32.join(profileDirectory, '.research-agent')
   ]
   const profileGuard = createUpgradeProfileGuard(true, `updater-${randomUUID()}`)
   await Promise.all([
@@ -558,7 +558,7 @@ const main = async () => {
       await writeFile(options.output, `${JSON.stringify(observation, null, 2)}\n`, 'utf8')
     }
     await runElectronUpdater({
-      executable: join(installDirectory, 'open-science.exe'),
+      executable: join(installDirectory, 'research-agent.exe'),
       env,
       expectedVersion: currentVersion,
       expectedInstaller: join(
@@ -570,7 +570,7 @@ const main = async () => {
       onDownloaded: persistObservation
     })
 
-    const installedExecutable = join(installDirectory, 'open-science.exe')
+    const installedExecutable = join(installDirectory, 'research-agent.exe')
     await waitFor(
       'the updated executable to be committed to disk',
       async () => {
@@ -586,7 +586,7 @@ const main = async () => {
       },
       UPDATE_TIMEOUT_MS
     )
-    await runProcess('taskkill.exe', ['/IM', 'open-science.exe', '/T', '/F'], {
+    await runProcess('taskkill.exe', ['/IM', 'research-agent.exe', '/T', '/F'], {
       allowNonZero: true,
       env,
       timeoutMs: 10_000
@@ -611,7 +611,7 @@ const main = async () => {
     }
   }
   await cleanup(() =>
-    runProcess('taskkill.exe', ['/IM', 'open-science.exe', '/T', '/F'], {
+    runProcess('taskkill.exe', ['/IM', 'research-agent.exe', '/T', '/F'], {
       allowNonZero: true,
       env,
       timeoutMs: 10_000

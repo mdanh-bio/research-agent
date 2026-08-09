@@ -25,12 +25,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 
 DOI_PATTERN = r"10\.\d{4,9}/[^\s\"'`\]\}—–&|]+"
 
 
-def litrev_contact() -> str | None:
+def litrev_contact() -> Optional[str]:
     """User contact email for polite-pool API headers (CrossRef/doi.org
     ONLY — never sent to OpenAlex, which does not take a contact email);
     None if unavailable.
@@ -77,7 +78,7 @@ def litrev_openalex_key() -> str:
     )
 
 
-def litrev_openalex_key_ok(key: str, timeout: float = 10) -> bool | None:
+def litrev_openalex_key_ok(key: str, timeout: float = 10) -> Optional[bool]:
     """Cheap key-aliveness probe: GET /rate-limit carrying ONLY api_key.
     With no other query parameters, a 4xx here cannot be a bad-parameter
     refusal (status matrix: core/src/ops/credentialAsk.ts), so it cleanly
@@ -101,7 +102,7 @@ def litrev_openalex_key_ok(key: str, timeout: float = 10) -> bool | None:
         return None
 
 
-def litrev_openalex_get(url: str, timeout: float = 15) -> dict | None:
+def litrev_openalex_get(url: str, timeout: float = 15) -> Optional[dict]:
     """GET an api.openalex.org URL with the required ``api_key=`` appended
     (and NO ``mailto`` anywhere — param or UA). Raises RuntimeError with an
     actionable message on 401/409 (key rejected/required) and on a 429
@@ -165,7 +166,7 @@ def litrev_openalex_get(url: str, timeout: float = 15) -> dict | None:
     return None
 
 
-def litrev_get(url: str, timeout: float = 15) -> dict | None:
+def litrev_get(url: str, timeout: float = 15) -> Optional[dict]:
     """GET `url` and JSON-decode. One 2s retry on HTTP 429; None on any error."""
     c = litrev_contact()
     ua = "ClaudeScience-literature-review/1.0" + (f" (mailto:{c})" if c else "")
@@ -193,13 +194,13 @@ def quote_doi_path(doi: str) -> str:
     )
 
 
-def crossref_year(m: dict) -> int | None:
+def crossref_year(m: dict) -> Optional[int]:
     """Safely extract the publication year from a CrossRef `message` record."""
     dp = (m.get("published") or {}).get("date-parts") or [[None]]
     return (dp[0] or [None])[0]
 
 
-def short_authors(names: list[str]) -> str | None:
+def short_authors(names: list[str]) -> Optional[str]:
     """Collapse an author list to note form: first three names,
     semicolon-separated (names may carry internal commas), then 'et al.'
     when more authors exist or any entry is nameless. Returns None when the
@@ -216,21 +217,21 @@ def short_authors(names: list[str]) -> str | None:
     return "; ".join(kept[:3]) + (" et al." if more else "")
 
 
-def crossref_authors(m: dict) -> str | None:
+def crossref_authors(m: dict) -> Optional[str]:
     """Note-form author names (family names) from a CrossRef `message` record."""
     return short_authors(
         [a.get("family") or a.get("name") or "" for a in (m.get("author") or [])]
     )
 
 
-def openalex_authors(w: dict) -> str | None:
+def openalex_authors(w: dict) -> Optional[str]:
     """Note-form author names (full display names) from an OpenAlex work record."""
     return short_authors(
         [((a.get("author") or {}).get("display_name") or "") for a in (w.get("authorships") or [])]
     )
 
 
-def litrev_head(url: str, timeout: float = 10) -> int | None:
+def litrev_head(url: str, timeout: float = 10) -> Optional[int]:
     """HEAD `url` WITHOUT following redirects; return the origin server's own
     status (so doi.org returns 302 for a registered DOI and 404 for an
     unregistered one — not the publisher's status). One 2s retry on 429.
@@ -316,7 +317,7 @@ def verify_dois(dois: list[str]) -> dict[str, dict]:
     return out
 
 
-def crossref_lookup(ref_string: str) -> dict | None:
+def crossref_lookup(ref_string: str) -> Optional[dict]:
     """Find a DOI from a free-text citation (author/title/year). Returns the
     top CrossRef match as {doi, title, authors, year, score} or None. Use when you have
     a citation's details but not its DOI — this is the alternative to guessing."""
@@ -445,7 +446,7 @@ def extract_dois(text: str) -> list[str]:
     return sorted(out)
 
 
-def style_pass(draft: str, model: str | None = None) -> dict:
+def style_pass(draft: str, model: Optional[str] = None) -> dict:
     """Deterministic prose lint. Returns {ok, issues:[{code,note}]} where each
     code is one of EMDASH/HONEST/PROCNOTE/PARENDOI/LONGHEAD/FLATSTRUCT.
 

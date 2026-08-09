@@ -1,23 +1,23 @@
 # Optional remote access integration
 
-This directory owns the optional Remote.It lifecycle plus Open Science's remote-session verification
-boundary. Open Science does not bundle, download, install, sign in to, or redistribute the
+This directory owns the optional Remote.It lifecycle plus Research Agent's remote-session verification
+boundary. Research Agent does not bundle, download, install, sign in to, or redistribute the
 provider. The adapter only detects the user-installed CLI and invokes its documented commands
 after an explicit desktop action.
 
 App access and Browser access use separate Remote.It services that both target the stable loopback
 Web port:
 
-- `Open Science Remote` is the App service. Its Persistent Public URL is explicitly disabled, and
-  signed-in App connections complete Open Science's six-digit verification before workspace access.
+- `Research Agent Remote` is the App service. Its Persistent Public URL is explicitly disabled, and
+  signed-in App connections complete Research Agent's six-digit verification before workspace access.
 - `System Service` is the Browser service. Its Persistent Public URL is enabled automatically, and
-  every new browser completes six-digit two-step verification before it can see Open Science.
+  every new browser completes six-digit two-step verification before it can see Research Agent.
 
 Provider `Host` and `Origin` headers are routing and same-origin signals only. The pairing manager
-always requires an unguessable Open Science session cookie for external HTTP, RPC, and WebSocket
+always requires an unguessable Research Agent session cookie for external HTTP, RPC, and WebSocket
 access; callers cannot disable that requirement for a provider route.
 
-The user adds this computer once through Remote.It's **This system** flow. Open Science deliberately
+The user adds this computer once through Remote.It's **This system** flow. Research Agent deliberately
 does not automate Device registration because the desktop-app session cannot authorize the separate
 CLI account. After that one-time step, the first App or Browser setup prepares both services
 together and persists their IDs independently. macOS submits any privileged create/repair commands

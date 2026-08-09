@@ -288,7 +288,7 @@ const StorageMigrationModal = ({
                 role="alert"
                 className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive"
               >
-                Don&apos;t quit Open Science or turn off your computer until this finishes.
+                Don&apos;t quit Research Agent or turn off your computer until this finishes.
               </p>
               <div className="mt-4 flex justify-end">
                 <Button type="button" variant="outline" onClick={handleCancel}>

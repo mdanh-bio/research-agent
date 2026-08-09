@@ -132,7 +132,7 @@ const createStorageCommandOwner = (deps: StorageCommandOwnerDeps) => {
     let dataRootMissing = false
     // A pre-§20 legacy install still keeps its data in the hidden config root: settings.dataRoot is
     // unset (using the default), that default resolved to the config root itself, and real user data
-    // lives there. Offer the one-time "move to the visible OpenScience folder" prompt until answered.
+    // lives there. Offer the one-time "move to the visible ResearchAgent folder" prompt until answered.
     let legacyDataMovePrompt = false
     try {
       const storedSettings = await deps.settingsService.getStoredSettings()

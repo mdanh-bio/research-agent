@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 
@@ -9,6 +9,7 @@ import { ComputeJobWorkflowOwner, resolveInputs } from './compute-job-workflow-o
 import type { ComputeApprovalBroker } from './compute-approval-broker'
 import type { ComputeHostRepository } from './repository'
 import type { ResolvedSshTarget, SshRunner } from './ssh-runner'
+import { resolveSshTarget } from './ssh-runner'
 import type { ScpRunner } from './scp-runner'
 import type { ConcurrencyManager } from './concurrency-manager'
 
@@ -26,7 +27,13 @@ const sampleHost = (overrides: Partial<ComputeHost> = {}): ComputeHost => ({
   scratchRoot: undefined,
   scratchPinned: false,
   concurrencyLimit: undefined,
-  probeResult: undefined,
+  probeResult: {
+    ok: true,
+    probedAt: '2026-08-10T00:00:00.000Z',
+    exitCode: 0,
+    errorTail: null,
+    detectedScheduler: 'none'
+  },
   detailsDoc: '',
   detailsUpdatedAt: undefined,
   detailsUpdatedBy: undefined,
@@ -40,7 +47,14 @@ const sampleHost = (overrides: Partial<ComputeHost> = {}): ComputeHost => ({
 const fakeTarget: ResolvedSshTarget = {
   sshBinary: '/usr/bin/ssh',
   host: 'biowulf.nih.gov',
-  extraArgs: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
+  extraArgs: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'],
+  connectionIdentity: {
+    configResolved: true,
+    alias: 'biowulf',
+    hostname: 'biowulf.nih.gov',
+    port: 22,
+    effectiveConfigHash: 'a'.repeat(64)
+  }
 }
 
 // Minimal fake runner — always resolves with a success result by default.
@@ -181,6 +195,250 @@ const makeJobRepo = (
 }
 
 describe('ComputeJobWorkflowOwner.submitJob', () => {
+  it('fails closed before approval or SSH for scheduler hosts until Slurm owns dispatch', async () => {
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const { repo } = makeRepo(sampleHost({ shape: 'scheduler_cluster' }))
+    const requestWithContext = vi.fn(() => Promise.resolve('once' as const))
+    const broker = {
+      request: requestWithContext,
+      requestWithContext,
+      respond: vi.fn()
+    } as unknown as ComputeApprovalBroker
+    const service = makeOwner(runner, repo, broker, jobRepo)
+
+    await expect(
+      service.submitJob(
+        'ssh:biowulf',
+        'scheduled analysis',
+        'python analysis.py',
+        { resourceRequest: JSON.stringify({ partition: 'gpu', gpus: 1 }) },
+        { sessionId: 'sess-1', projectId: 'proj-1' }
+      )
+    ).rejects.toMatchObject({
+      computeCallError: {
+        error_code: 'scheduler_not_ready',
+        retry_after_user_action: true
+      }
+    })
+    expect(requestWithContext).not.toHaveBeenCalled()
+    expect(createCalls).not.toHaveBeenCalled()
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['unprobed', undefined],
+    [
+      'failed probe',
+      {
+        ok: false,
+        probedAt: '2026-08-10T00:00:00.000Z',
+        exitCode: 255,
+        errorTail: 'Connection refused'
+      }
+    ]
+  ] as const)(
+    'does not treat a direct-shaped %s host as executable',
+    async (_label, probeResult) => {
+      const runner = makeFakeRunner({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        timedOut: false
+      })
+      const { repo: jobRepo, createCalls } = makeJobRepo()
+      const { repo } = makeRepo(sampleHost({ shape: 'direct_ssh', probeResult }))
+      const requestWithContext = vi.fn(() => Promise.resolve('once' as const))
+      const service = makeOwner(
+        runner,
+        repo,
+        { requestWithContext } as unknown as ComputeApprovalBroker,
+        jobRepo
+      )
+
+      await expect(
+        service.submitJob(
+          'ssh:biowulf',
+          'analysis',
+          'python analysis.py',
+          {},
+          { sessionId: 'sess-1', projectId: 'proj-1' }
+        )
+      ).rejects.toMatchObject({ computeCallError: { error_code: 'host_unclassified' } })
+      expect(requestWithContext).not.toHaveBeenCalled()
+      expect(createCalls).not.toHaveBeenCalled()
+      expect(runner.run).not.toHaveBeenCalled()
+    }
+  )
+
+  it('invalidates approval when the host becomes scheduler-classified while the card is open', async () => {
+    const directHost = sampleHost()
+    const schedulerHost = sampleHost({
+      shape: 'scheduler_cluster',
+      probeResult: {
+        ok: true,
+        probedAt: '2026-08-10T00:01:00.000Z',
+        exitCode: 0,
+        errorTail: null,
+        detectedScheduler: 'slurm'
+      }
+    })
+    const { repo } = makeRepo(directHost)
+    vi.mocked(repo.get).mockResolvedValueOnce(directHost).mockResolvedValue(schedulerHost)
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const requestWithContext = vi.fn(() => Promise.resolve('once' as const))
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+
+    await expect(
+      makeOwner(
+        runner,
+        repo,
+        { requestWithContext } as unknown as ComputeApprovalBroker,
+        jobRepo
+      ).submitJob(
+        'ssh:biowulf',
+        'analysis',
+        'python analysis.py',
+        {},
+        { sessionId: 'sess-1', projectId: 'proj-1' }
+      )
+    ).rejects.toMatchObject({ computeCallError: { error_code: 'approval_stale' } })
+    expect(requestWithContext).toHaveBeenCalledOnce()
+    expect(createCalls).not.toHaveBeenCalled()
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
+  it('invalidates approval when resolved SSH options change while the card is open', async () => {
+    const changedTarget: ResolvedSshTarget = {
+      ...fakeTarget,
+      extraArgs: [...fakeTarget.extraArgs, '-p', '2222'],
+      connectionIdentity: {
+        ...fakeTarget.connectionIdentity!,
+        port: 2222,
+        effectiveConfigHash: 'b'.repeat(64)
+      }
+    }
+    vi.mocked(resolveSshTarget)
+      .mockResolvedValueOnce(fakeTarget)
+      .mockResolvedValueOnce(changedTarget)
+    const { repo } = makeRepo()
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+
+    await expect(
+      makeOwner(
+        runner,
+        repo,
+        {
+          requestWithContext: vi.fn(() => Promise.resolve('once' as const))
+        } as unknown as ComputeApprovalBroker,
+        jobRepo
+      ).submitJob(
+        'ssh:biowulf',
+        'analysis',
+        'python analysis.py',
+        {},
+        { sessionId: 'sess-1', projectId: 'proj-1' }
+      )
+    ).rejects.toMatchObject({ computeCallError: { error_code: 'approval_stale' } })
+    expect(createCalls).not.toHaveBeenCalled()
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
+  it('does not open an approval card when ssh -G cannot resolve the endpoint/options', async () => {
+    vi.mocked(resolveSshTarget).mockResolvedValueOnce({
+      ...fakeTarget,
+      connectionIdentity: { ...fakeTarget.connectionIdentity!, configResolved: false }
+    })
+    const { repo } = makeRepo()
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const requestWithContext = vi.fn(() => Promise.resolve('once' as const))
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+
+    await expect(
+      makeOwner(
+        runner,
+        repo,
+        { requestWithContext } as unknown as ComputeApprovalBroker,
+        jobRepo
+      ).submitJob(
+        'ssh:biowulf',
+        'analysis',
+        'python analysis.py',
+        {},
+        { sessionId: 'sess-1', projectId: 'proj-1' }
+      )
+    ).rejects.toMatchObject({ computeCallError: { error_code: 'host_unclassified' } })
+    expect(requestWithContext).not.toHaveBeenCalled()
+    expect(createCalls).not.toHaveBeenCalled()
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
+  it('invalidates approval when a local input changes while the card is open', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'compute-approval-race-'))
+    const inputPath = join(workspace, 'counts.tsv')
+    await writeFile(inputPath, 'gene\tcount\nA\t1\n')
+    const { repo } = makeRepo()
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+    const requestWithContext = vi.fn(async () => {
+      await writeFile(inputPath, 'gene\tcount\nA\t999\n')
+      return 'once' as const
+    })
+
+    try {
+      await expect(
+        makeOwner(
+          runner,
+          repo,
+          { requestWithContext } as unknown as ComputeApprovalBroker,
+          jobRepo
+        ).submitJob(
+          'ssh:biowulf',
+          'analysis',
+          'python analysis.py',
+          { inputs: [{ src: 'counts.tsv', dst_filename: 'counts.tsv' }], workspaceCwd: workspace },
+          { sessionId: 'sess-1', projectId: 'proj-1' }
+        )
+      ).rejects.toMatchObject({ computeCallError: { error_code: 'approval_stale' } })
+      expect(createCalls).not.toHaveBeenCalled()
+      expect(runner.run).not.toHaveBeenCalled()
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('returns job_id + remote_workdir immediately (before dispatch)', async () => {
     // Runner should never be called for submit_job itself (dispatch is background).
     const runner = makeFakeRunner({
@@ -213,7 +471,7 @@ describe('ComputeJobWorkflowOwner.submitJob', () => {
     expect(result.status).toBe('submitted')
     expect(result.provider_id).toBe('ssh:biowulf')
     expect(result.job_id).toBeDefined()
-    expect(result.remote_workdir).toContain('.openscience/jobs/')
+    expect(result.remote_workdir).toContain('.research-agent/jobs/')
     expect(createCalls).toHaveBeenCalledOnce()
   })
 
@@ -246,7 +504,7 @@ describe('ComputeJobWorkflowOwner.submitJob', () => {
     expect(createCalls).not.toHaveBeenCalled()
   })
 
-  it('uses operation=submit_job for grant memory (not call_command)', async () => {
+  it('marks submit_job as single-use before handing it to the approval broker', async () => {
     const runner = makeFakeRunner({
       exitCode: 0,
       stdout: '',
@@ -275,7 +533,7 @@ describe('ComputeJobWorkflowOwner.submitJob', () => {
     )
 
     expect(requestWithContext).toHaveBeenCalledWith(
-      expect.anything(),
+      expect.objectContaining({ execution_mode: 'direct_ssh', single_use: true }),
       expect.objectContaining({ operation: 'submit_job' })
     )
   })
@@ -461,17 +719,28 @@ describe('ComputeJobWorkflowOwner.getJobStatus', () => {
 
 describe('resolveInputs — workspace source', () => {
   it('resolves a workspace path to an absolute local path', async () => {
-    const { entries, inputsSummary } = await resolveInputs(
-      [{ src: 'data/sample.fa', dst_filename: 'sample.fa' }],
-      '/workspace/root',
-      undefined
-    )
-    expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ kind: 'upload', dstFilename: 'sample.fa' })
-    expect((entries[0] as { localPath: string }).localPath).toBe(
-      resolve('/workspace/root', 'data/sample.fa')
-    )
-    expect(inputsSummary).toBe('1 input: sample.fa')
+    const workspace = await mkdtemp(join(tmpdir(), 'compute-resolve-workspace-'))
+    const sourcePath = join(workspace, 'data', 'sample.fa')
+    await mkdir(join(workspace, 'data'))
+    await writeFile(sourcePath, 'ACGT\n')
+    try {
+      const { entries, inputsSummary } = await resolveInputs(
+        [{ src: 'data/sample.fa', dst_filename: 'sample.fa' }],
+        workspace,
+        undefined
+      )
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).toMatchObject({
+        kind: 'upload',
+        sourcePath,
+        localPath: await realpath(sourcePath),
+        authorizedRoot: await realpath(workspace),
+        dstFilename: 'sample.fa'
+      })
+      expect(inputsSummary).toBe('1 input: sample.fa')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
   })
 
   it('rejects a workspace path that escapes the workspace root via ../', async () => {
@@ -484,6 +753,22 @@ describe('resolveInputs — workspace source', () => {
     ).rejects.toThrow(/escape/)
   })
 
+  it('rejects a workspace symlink whose canonical target is outside the workspace', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'compute-symlink-workspace-'))
+    const outside = await mkdtemp(join(tmpdir(), 'compute-symlink-outside-'))
+    const outsideFile = join(outside, 'secret.txt')
+    await writeFile(outsideFile, 'not authorized\n')
+    await symlink(outsideFile, join(workspace, 'input.txt'))
+    try {
+      await expect(
+        resolveInputs([{ src: 'input.txt', dst_filename: 'input.txt' }], workspace, undefined)
+      ).rejects.toThrow(/outside its authorized root/)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
   it('throws when workspaceCwd is missing for a workspace src', async () => {
     await expect(
       resolveInputs([{ src: 'data.csv', dst_filename: 'data.csv' }], undefined, undefined)
@@ -493,24 +778,35 @@ describe('resolveInputs — workspace source', () => {
 
 describe('resolveInputs — artifact source', () => {
   it('resolves an absolute artifact-store path via ArtifactResolver to a local path', async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), 'compute-artifact-root-'))
+    const artifactPath = join(storageRoot, 'artifacts', 'sess', 'run', 'model.pkl')
+    await mkdir(join(storageRoot, 'artifacts', 'sess', 'run'), { recursive: true })
+    await writeFile(artifactPath, 'model\n')
     const resolver = {
-      resolveArtifactPath: vi.fn(async () => '/storage/artifacts/sess/run/model.pkl')
+      resolveArtifactPath: vi.fn(async () => artifactPath)
     }
-    const { entries, inputsSummary } = await resolveInputs(
-      [{ src: '/storage/artifacts/sess/run/model.pkl', dst_filename: 'model.pkl' }],
-      undefined,
-      resolver
-    )
-    expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({
-      kind: 'upload',
-      localPath: '/storage/artifacts/sess/run/model.pkl',
-      dstFilename: 'model.pkl'
-    })
-    expect(inputsSummary).toBe('1 input: model.pkl')
-    expect(resolver.resolveArtifactPath).toHaveBeenCalledWith(
-      '/storage/artifacts/sess/run/model.pkl'
-    )
+    try {
+      const { entries, inputsSummary } = await resolveInputs(
+        [{ src: '/storage/artifacts/sess/run/model.pkl', dst_filename: 'model.pkl' }],
+        undefined,
+        resolver,
+        storageRoot
+      )
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).toMatchObject({
+        kind: 'upload',
+        sourcePath: artifactPath,
+        localPath: await realpath(artifactPath),
+        authorizedRoot: await realpath(storageRoot),
+        dstFilename: 'model.pkl'
+      })
+      expect(inputsSummary).toBe('1 input: model.pkl')
+      expect(resolver.resolveArtifactPath).toHaveBeenCalledWith(
+        '/storage/artifacts/sess/run/model.pkl'
+      )
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true })
+    }
   })
 
   it('throws when artifactResolver is missing for an absolute (artifact) src', async () => {
@@ -580,24 +876,46 @@ describe('resolveInputs — dst_filename validation', () => {
       resolveInputs([{ src: 'data.csv', dst_filename: '' }], '/workspace', undefined)
     ).rejects.toThrow(/bare filename/)
   })
+
+  it.each(['$(touch owned)', '`touch owned`', 'result;touch-owned', '*.csv'])(
+    'rejects traditional-SCP metacharacters in dst_filename %s',
+    async (dstFilename) => {
+      await expect(
+        resolveInputs([{ src: 'data.csv', dst_filename: dstFilename }], '/workspace', undefined)
+      ).rejects.toThrow(/shell-unsafe|glob/)
+    }
+  )
 })
 
 describe('resolveInputs — mixed inputs summary', () => {
   it('builds summary for multiple inputs of different kinds', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'compute-mixed-inputs-'))
+    const workspace = join(root, 'workspace')
+    const storageRoot = join(root, 'storage')
+    const artifactPath = join(storageRoot, 'model.pkl')
+    await mkdir(workspace)
+    await mkdir(storageRoot)
+    await writeFile(join(workspace, 'data.csv'), 'value\n')
+    await writeFile(artifactPath, 'model\n')
     const resolver = {
-      resolveArtifactPath: vi.fn(async () => '/storage/model.pkl')
+      resolveArtifactPath: vi.fn(async () => artifactPath)
     }
-    const { entries, inputsSummary } = await resolveInputs(
-      [
-        { src: 'data.csv', dst_filename: 'data.csv' },
-        { src: '/storage/artifacts/s/r/model.pkl', dst_filename: 'model.pkl' },
-        { remote_path: '/scratch/ref.fa', dst_filename: 'ref.fa' }
-      ],
-      '/workspace',
-      resolver
-    )
-    expect(entries).toHaveLength(3)
-    expect(inputsSummary).toBe('3 inputs: data.csv, model.pkl, ref.fa (symlink)')
+    try {
+      const { entries, inputsSummary } = await resolveInputs(
+        [
+          { src: 'data.csv', dst_filename: 'data.csv' },
+          { src: '/storage/artifacts/s/r/model.pkl', dst_filename: 'model.pkl' },
+          { remote_path: '/scratch/ref.fa', dst_filename: 'ref.fa' }
+        ],
+        workspace,
+        resolver,
+        storageRoot
+      )
+      expect(entries).toHaveLength(3)
+      expect(inputsSummary).toBe('3 inputs: data.csv, model.pkl, ref.fa (symlink)')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('returns empty summary when no inputs', async () => {
@@ -609,6 +927,8 @@ describe('resolveInputs — mixed inputs summary', () => {
 
 describe('ComputeJobWorkflowOwner.submitJob — inputs_summary in approval', () => {
   it('passes inputs_summary to the approval request when inputs are provided', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'compute-approved-input-'))
+    await writeFile(join(workspace, 'ref.fa'), 'ACGT\n')
     const runner = makeFakeRunner({
       exitCode: 0,
       stdout: '',
@@ -628,23 +948,57 @@ describe('ComputeJobWorkflowOwner.submitJob — inputs_summary in approval', () 
 
     const service = makeOwner(runner, repo, broker, jobRepo)
 
-    await service.submitJob(
-      'ssh:biowulf',
-      'test',
-      'echo hi',
-      {
-        inputs: [{ remote_path: '/scratch/ref.fa', dst_filename: 'ref.fa' }]
-      },
-      { sessionId: 's1', projectId: 'p1' }
-    )
+    try {
+      await service.submitJob(
+        'ssh:biowulf',
+        'test',
+        'echo hi',
+        {
+          inputs: [{ src: 'ref.fa', dst_filename: 'ref.fa' }],
+          workspaceCwd: workspace
+        },
+        { sessionId: 's1', projectId: 'p1' }
+      )
 
-    const callArg = (requestWithContext as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-      inputs_summary?: string
+      const callArg = (requestWithContext as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        inputs_summary?: string
+        job_summary?: import('../../shared/compute-scheduler').ComputeJobApprovalSummary
+        dispatch_binding?: import('../../shared/compute-scheduler').ComputeDispatchApprovalSummary
+      }
+      expect(callArg.inputs_summary).toMatch(/^ref\.fa \(5 bytes; sha256 [a-f0-9]{64}\)$/)
+      expect(callArg.job_summary).toMatchObject({
+        host: 'biowulf',
+        partition: null,
+        account: null,
+        cpu: { nodes: 1, tasks_per_node: 1, cpus_per_task: 1, total_cpus: 1 },
+        gpu: null,
+        memory_mib: null,
+        wall_time_seconds: 24 * 3600,
+        inputs: ['ref.fa'],
+        expected_outputs: []
+      })
+      expect(callArg.job_summary?.script_hash).toMatch(/^[a-f0-9]{64}$/)
+      expect(callArg.job_summary?.working_directory).toContain('.research-agent/jobs/')
+      expect(callArg.dispatch_binding).toMatchObject({
+        inputs: [{ destination: 'ref.fa', size_bytes: 5 }],
+        ssh_target: {
+          alias: 'biowulf',
+          hostname: 'biowulf.nih.gov',
+          port: 22,
+          effective_config_hash: 'a'.repeat(64)
+        }
+      })
+      expect(callArg.dispatch_binding?.inputs[0]?.sha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(callArg.dispatch_binding?.binding_hash).toMatch(/^[a-f0-9]{64}$/)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
     }
-    expect(callArg.inputs_summary).toBe('1 input: ref.fa (symlink)')
   })
 
   it('stores resolved inputManifest in the DB row', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'compute-approved-manifest-'))
+    const localInput = join(workspace, 'ref.fa')
+    await writeFile(localInput, 'ACGT\n')
     const runner = makeFakeRunner({
       exitCode: 0,
       stdout: '',
@@ -663,31 +1017,129 @@ describe('ComputeJobWorkflowOwner.submitJob — inputs_summary in approval', () 
 
     const service = makeOwner(runner, repo, broker, jobRepo)
 
-    await service.submitJob(
-      'ssh:biowulf',
-      'test',
-      'echo hi',
-      {
-        inputs: [{ remote_path: '/scratch/ref.fa', dst_filename: 'ref.fa' }]
-      },
-      { sessionId: 's1', projectId: 'p1' }
-    )
+    try {
+      await service.submitJob(
+        'ssh:biowulf',
+        'test',
+        'echo hi',
+        {
+          inputs: [{ src: 'ref.fa', dst_filename: 'ref.fa' }],
+          workspaceCwd: workspace
+        },
+        { sessionId: 's1', projectId: 'p1' }
+      )
 
-    const createArg = (createCalls as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
-      inputManifest?: string
+      const createArg = (createCalls as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        inputManifest?: string
+      }
+      expect(createArg.inputManifest).toBeDefined()
+      const manifest = JSON.parse(createArg.inputManifest!) as {
+        version: number
+        inputs: Array<{
+          kind: string
+          sourcePath: string
+          localPath: string
+          authorizedRoot: string
+          dstFilename: string
+          contentIdentity: { sizeBytes: number; sha256: string }
+        }>
+      }
+      expect(manifest.version).toBe(2)
+      expect(manifest.inputs).toHaveLength(1)
+      expect(manifest.inputs[0]).toMatchObject({
+        kind: 'upload',
+        sourcePath: localInput,
+        localPath: await realpath(localInput),
+        authorizedRoot: await realpath(workspace),
+        dstFilename: 'ref.fa',
+        contentIdentity: { sizeBytes: 5 }
+      })
+      expect(manifest.inputs[0]?.contentIdentity.sha256).toMatch(/^[a-f0-9]{64}$/)
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
     }
-    expect(createArg.inputManifest).toBeDefined()
-    const manifest = JSON.parse(createArg.inputManifest!) as Array<{
-      kind: string
-      remotePath: string
-      dstFilename: string
-    }>
-    expect(manifest).toHaveLength(1)
-    expect(manifest[0]).toMatchObject({
-      kind: 'symlink',
-      remotePath: '/scratch/ref.fa',
-      dstFilename: 'ref.fa'
+  })
+
+  it('rejects an outside-target workspace symlink before approval or persistence', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'compute-submit-symlink-workspace-'))
+    const outside = await mkdtemp(join(tmpdir(), 'compute-submit-symlink-outside-'))
+    const outsideFile = join(outside, 'private-key')
+    await writeFile(outsideFile, 'sensitive\n')
+    await symlink(outsideFile, join(workspace, 'input.fa'))
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
     })
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const { repo } = makeRepo()
+    const requestWithContext = vi.fn(() => Promise.resolve('once' as const))
+    const broker = {
+      request: requestWithContext,
+      requestWithContext,
+      respond: vi.fn()
+    } as unknown as ComputeApprovalBroker
+    const service = makeOwner(runner, repo, broker, jobRepo)
+
+    try {
+      await expect(
+        service.submitJob(
+          'ssh:biowulf',
+          'test',
+          'echo hi',
+          {
+            inputs: [{ src: 'input.fa', dst_filename: 'input.fa' }],
+            workspaceCwd: workspace
+          },
+          { sessionId: 's1', projectId: 'p1' }
+        )
+      ).rejects.toMatchObject({
+        computeCallError: {
+          error_code: 'input_identity_unavailable',
+          message: expect.stringMatching(/outside its authorized root/)
+        }
+      })
+      expect(requestWithContext).not.toHaveBeenCalled()
+      expect(createCalls).not.toHaveBeenCalled()
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects remote symlink inputs before approval because their bytes cannot be identified', async () => {
+    const runner = makeFakeRunner({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+    const { repo: jobRepo, createCalls } = makeJobRepo()
+    const { repo } = makeRepo()
+    const requestWithContext = vi.fn(() => Promise.resolve('once' as const))
+    const broker = {
+      request: requestWithContext,
+      requestWithContext,
+      respond: vi.fn()
+    } as unknown as ComputeApprovalBroker
+    const service = makeOwner(runner, repo, broker, jobRepo)
+
+    await expect(
+      service.submitJob(
+        'ssh:biowulf',
+        'test',
+        'echo hi',
+        { inputs: [{ remote_path: '/scratch/ref.fa', dst_filename: 'ref.fa' }] },
+        { sessionId: 's1', projectId: 'p1' }
+      )
+    ).rejects.toMatchObject({
+      computeCallError: { error_code: 'input_identity_unavailable' }
+    })
+    expect(requestWithContext).not.toHaveBeenCalled()
+    expect(createCalls).not.toHaveBeenCalled()
   })
 })
 

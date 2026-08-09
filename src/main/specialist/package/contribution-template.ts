@@ -8,7 +8,7 @@ import {
   type ContributionTemplateExportResult
 } from '../../../shared/specialist-package'
 
-export const CONTRIBUTION_TEMPLATE_FILENAME = 'openscience-specialist-template.zip'
+export const CONTRIBUTION_TEMPLATE_FILENAME = 'research-agent-specialist-template.zip'
 
 export const resolveContributionTemplateReadmePath = (appPath: string): string =>
   join(appPath, 'resources', 'specialists', 'template', 'v1', 'README.txt').replace(

@@ -305,7 +305,7 @@ const SpecialistsPanel = ({ view, onNavigate }: SpecialistsPanelProps): React.JS
           </div>
           <h3 className="mt-4 text-lg font-semibold">Template saved</h3>
           <p className="mt-2 text-sm text-muted-foreground">
-            openscience-specialist-template.zip is ready for contributor editing.
+            research-agent-specialist-template.zip is ready for contributor editing.
           </p>
           <Button type="button" className="mt-5" onClick={() => setTemplateSaved(false)}>
             Done

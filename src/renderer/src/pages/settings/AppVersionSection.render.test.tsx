@@ -21,9 +21,9 @@ beforeEach(() => {
 
   useUpdateStore.setState({
     appInfo: {
-      name: 'Open Science',
+      name: 'Research Agent',
       version: '0.2.0',
-      copyright: '© 2026 AIPOCH. All rights reserved.'
+      copyright: '© 2026 mdanh-bio and AIPOCH contributors.'
     },
     status: { state: 'up-to-date', current: '0.2.0', latest: '0.2.0' }
   })
@@ -41,9 +41,9 @@ describe('AppVersionSection', () => {
       root.render(<AppVersionSection />)
     })
 
-    expect(container.textContent).toContain('Open Science')
+    expect(container.textContent).toContain('Research Agent')
     expect(container.textContent).toContain('v0.2.0')
-    expect(container.textContent).toContain('© 2026 AIPOCH')
+    expect(container.textContent).toContain('© 2026 mdanh-bio and AIPOCH contributors.')
   })
 
   it('switches the About logo with an explicit app Theme', () => {

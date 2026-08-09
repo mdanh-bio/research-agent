@@ -18,7 +18,7 @@ import openScienceLogoSvg from '../../main/remote-access/openscience-logo.svg?ra
 applyTheme(resolveInitialTheme())
 
 const REMOTE_ACCESS_OFF_MESSAGE =
-  'Remote access is off on the home computer. Re-enable a remote access mode in Open Science, then try again.'
+  'Remote access is off on the home computer. Re-enable a remote access mode in Research Agent, then try again.'
 
 class RemoteAccessOffError extends Error {}
 
@@ -87,7 +87,7 @@ const fetchBootstrap = async (): Promise<unknown> => {
         throw responseError(
           response,
           await response.text(),
-          `Open Science returned HTTP ${response.status}.`
+          `Research Agent returned HTTP ${response.status}.`
         )
       }
       return response.json()
@@ -100,7 +100,7 @@ const fetchBootstrap = async (): Promise<unknown> => {
   }
   throw lastError instanceof Error
     ? lastError
-    : new Error('Unable to initialize Open Science Remote.')
+    : new Error('Unable to initialize Research Agent Remote.')
 }
 
 const showConnectionFailure = (error: unknown): void => {
@@ -167,7 +167,7 @@ const invoke = async (channel: string, args: unknown[]): Promise<unknown> => {
   } catch {
     if (!response.ok) throw responseError(response, body, `RPC ${channel} failed`)
     throw new Error(
-      'Open Science returned an invalid response. Try reconnecting to the remote computer.'
+      'Research Agent returned an invalid response. Try reconnecting to the remote computer.'
     )
   }
   if (!payload.ok) {
@@ -239,7 +239,7 @@ const installWebApi = async (): Promise<void> => {
   const parsedBootstrap = webRpcBootstrapSchema.safeParse(await fetchBootstrap())
   if (!parsedBootstrap.success) {
     throw new Error(
-      `Incompatible Open Science Web RPC protocol. Expected version ${WEB_RPC_PROTOCOL_VERSION}.`
+      `Incompatible Research Agent Web RPC protocol. Expected version ${WEB_RPC_PROTOCOL_VERSION}.`
     )
   }
   const bootstrap = parsedBootstrap.data

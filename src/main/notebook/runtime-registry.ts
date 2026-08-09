@@ -60,7 +60,7 @@ export const computePackageMutability = (
   if (selection.source === 'managed') {
     return { mutable: true, via }
   }
-  // App-created overlay: Open Science owns this venv, so installs are always allowed.
+  // App-created overlay: Research Agent owns this venv, so installs are always allowed.
   if (selection.appOwnedOverlay) {
     return { mutable: true, via }
   }
@@ -68,7 +68,7 @@ export const computePackageMutability = (
     return {
       mutable: false,
       reason:
-        'This is your own environment; Open Science is not authorized to modify it. Install the ' +
+        'This is your own environment; Research Agent is not authorized to modify it. Install the ' +
         'package yourself, enable installs for this environment in Settings, or switch to the ' +
         'managed environment.'
     }

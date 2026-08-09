@@ -19,7 +19,7 @@ const DEFAULT_PORT = 44100
 const START_TIMEOUT_MS = 30_000
 const STOP_TIMEOUT_MS = 15_000
 
-const usage = `Usage: open-science <command> [options]
+const usage = `Usage: research-agent <command> [options]
 
 Commands:
   start       Start the headless backend and localhost web UI
@@ -38,7 +38,7 @@ Commands:
 
 Options:
   --port <port>          Web service port (default: 44100)
-  --app-path <path>      Installed Open Science executable
+  --app-path <path>      Installed Research Agent executable
   --config-root <path>   Config directory override
   --data-root <path>     Current Data Root override (rollback only)
   --project <id-or-name> Project id or exact name
@@ -374,30 +374,30 @@ const sandboxFailurePattern =
 export const formatStartupFailure = (outcome, logTail, options) => {
   if (!options.noSandbox && sandboxFailurePattern.test(logTail)) {
     return [
-      'Open Science could not start because Chromium sandboxing is unavailable on this host.',
+      'Research Agent could not start because Chromium sandboxing is unavailable on this host.',
       logTail,
       'This can occur when an AppImage mount cannot provide the SUID permissions required by Chromium; some Linux hosts also restrict unprivileged user namespaces.',
-      'For an explicit rootless fallback, run "open-science start --no-sandbox".',
+      'For an explicit rootless fallback, run "research-agent start --no-sandbox".',
       "Warning: --no-sandbox disables Chromium's process sandbox and reduces security. Prefer the Debian package or a host configuration that supports sandboxed startup."
     ]
       .filter(Boolean)
       .join('\n\n')
   }
-  if (outcome.kind === 'error') return `Could not start Open Science: ${outcome.error.message}`
+  if (outcome.kind === 'error') return `Could not start Research Agent: ${outcome.error.message}`
 
   const exitStatus = outcome.signal
     ? ` after receiving ${outcome.signal}`
     : ` with exit code ${outcome.code ?? 'unknown'}`
-  return `Open Science exited before becoming healthy${exitStatus}.${logTail ? `\n\n${logTail}` : ''}`
+  return `Research Agent exited before becoming healthy${exitStatus}.${logTail ? `\n\n${logTail}` : ''}`
 }
 
 const startCommand = async (options, deps = DEFAULT_DEPS) => {
   const existing = await deps.findServiceState({ override: options.configRoot })
   if (await healthCheck(existing, deps)) {
     const url = await authenticatedUrl(existing, deps)
-    deps.log(`Open Science is already running (PID ${existing.pid}).`)
+    deps.log(`Research Agent is already running (PID ${existing.pid}).`)
     if (options.open) openBrowser(url)
-    else deps.log('Run "open-science url" to print a browser login URL.')
+    else deps.log('Run "research-agent url" to print a browser login URL.')
     return
   }
 
@@ -418,7 +418,7 @@ const startCommand = async (options, deps = DEFAULT_DEPS) => {
   const port = options.port ?? DEFAULT_PORT
   const childEnv = {
     ...process.env,
-    ...(app.packaged ? {} : { OPEN_SCIENCE_STORAGE_ROOT: configRoot }),
+    ...(app.packaged ? {} : { RESEARCH_AGENT_STORAGE_ROOT: configRoot }),
     OPEN_SCIENCE_WEB_PORT: String(port)
   }
   // The installed launcher runs this CLI via the app's Electron in Node mode (ELECTRON_RUN_AS_NODE=1).
@@ -444,14 +444,14 @@ const startCommand = async (options, deps = DEFAULT_DEPS) => {
       throw new Error(formatStartupFailure(startup, logTail, options))
     }
     throw new Error(
-      `Open Science did not become healthy within ${START_TIMEOUT_MS / 1000}s.${logTail ? `\n\n${logTail}` : ''}`
+      `Research Agent did not become healthy within ${START_TIMEOUT_MS / 1000}s.${logTail ? `\n\n${logTail}` : ''}`
     )
   }
   const state = startup.state
   const url = await authenticatedUrl(state, deps)
-  deps.log(`Open Science started (PID ${state.pid}).`)
+  deps.log(`Research Agent started (PID ${state.pid}).`)
   if (options.open) openBrowser(url)
-  else deps.log('Run "open-science url" to print a browser login URL.')
+  else deps.log('Run "research-agent url" to print a browser login URL.')
 }
 
 const findCurrentState = async (options, deps = DEFAULT_DEPS) => {
@@ -467,7 +467,7 @@ const findCurrentState = async (options, deps = DEFAULT_DEPS) => {
 export const stopCommand = async (options, deps = DEFAULT_DEPS) => {
   const state = await findCurrentState(options, deps)
   if (!state) {
-    deps.log('Open Science is not running.')
+    deps.log('Research Agent is not running.')
     return
   }
   const token = await deps.readWebToken(state.configRoot)
@@ -489,11 +489,11 @@ export const stopCommand = async (options, deps = DEFAULT_DEPS) => {
     const stopped = await waitForWebServiceStopped(state, deps, STOP_TIMEOUT_MS)
     if (!stopped) {
       throw new Error(
-        `Could not stop the Open Science web service (PID ${state.pid}); the app is still serving.`
+        `Could not stop the Research Agent web service (PID ${state.pid}); the app is still serving.`
       )
     }
     await deps.removeState(state.configRoot)
-    deps.log('Open Science web service stopped; the app is still running.')
+    deps.log('Research Agent web service stopped; the app is still running.')
     return
   }
 
@@ -509,10 +509,10 @@ export const stopCommand = async (options, deps = DEFAULT_DEPS) => {
   // Only claim success (and drop the state file) once the process is confirmed gone; otherwise leave
   // the state in place and fail loudly so the user isn't told it stopped when it didn't.
   if (!stopped) {
-    throw new Error(`Could not stop Open Science (PID ${state.pid}); it is still running.`)
+    throw new Error(`Could not stop Research Agent (PID ${state.pid}); it is still running.`)
   }
   await deps.removeState(state.configRoot)
-  deps.log('Open Science stopped.')
+  deps.log('Research Agent stopped.')
 }
 
 export const statusCommand = async (options, deps = DEFAULT_DEPS) => {
@@ -521,16 +521,16 @@ export const statusCommand = async (options, deps = DEFAULT_DEPS) => {
   if (options.json) {
     deps.log(JSON.stringify(running ? { running: true, ...state } : { running: false }, null, 2))
   } else if (running) {
-    deps.log(`Open Science is running (PID ${state.pid}, port ${state.port}).`)
+    deps.log(`Research Agent is running (PID ${state.pid}, port ${state.port}).`)
   } else {
-    deps.log('Open Science is not running.')
+    deps.log('Research Agent is not running.')
   }
   if (!running) process.exitCode = 1
 }
 
 export const urlCommand = async (options, deps = DEFAULT_DEPS) => {
   const state = await findCurrentState(options, deps)
-  if (!(await healthCheck(state, deps))) throw new Error('Open Science is not running.')
+  if (!(await healthCheck(state, deps))) throw new Error('Research Agent is not running.')
   deps.log(await authenticatedUrl(state, deps))
 }
 
@@ -592,12 +592,12 @@ export const rollbackCommand = async (options, dependencies = {}) => {
     deps.log(JSON.stringify(manifest))
     return
   }
-  deps.log(`Prepared an isolated Open Science ${manifest.targetVersion} rollback.`)
+  deps.log(`Prepared an isolated Research Agent ${manifest.targetVersion} rollback.`)
   deps.log(`Rollback Data Root: ${manifest.rollbackDataRoot}`)
   deps.log(`Preserved newer Config Root: ${manifest.preservedConfigRoot}`)
   deps.log(`Preserved newer Data Root: ${manifest.preservedDataRoot}`)
   deps.log(`Converted Sessions: ${manifest.sessionsConverted}`)
-  deps.log(`You can now install and start Open Science ${manifest.targetVersion}.`)
+  deps.log(`You can now install and start Research Agent ${manifest.targetVersion}.`)
 }
 
 const readPrompt = async (options, deps) => {
@@ -632,7 +632,7 @@ const emitRunEvent = (event, options, deps) => {
     if (message) deps.log(message)
   } else if (event.type === 'permission.requested') {
     deps.warn(
-      'Run is waiting for approval. Approve the request in Open Science Desktop or the Web UI.'
+      'Run is waiting for approval. Approve the request in Research Agent Desktop or the Web UI.'
     )
   } else if (
     event.type === 'run.event' &&

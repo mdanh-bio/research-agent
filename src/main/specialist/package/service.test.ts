@@ -31,7 +31,7 @@ const catalog: SpecialistPackageCatalogSnapshot = {
 describe('specialistExportFileName', () => {
   it('uses a readable Unicode-safe display name and strips filesystem punctuation', () => {
     expect(specialistExportFileName('RNA / 研究助手:*', '1.2.3', 'fallback-id')).toBe(
-      'open-science-specialist-rna-研究助手-v1.2.3.zip'
+      'research-agent-specialist-rna-研究助手-v1.2.3.zip'
     )
   })
 })
@@ -329,7 +329,7 @@ describe('SpecialistPackageService', () => {
     await expect(service.previewExport('research-synth')).resolves.toMatchObject({
       specialistId: 'research-synth',
       version: '1.3.0',
-      fileName: 'open-science-specialist-research-synthesizer-v1.3.0.zip',
+      fileName: 'research-agent-specialist-research-synthesizer-v1.3.0.zip',
       expectedRevision: 3,
       canExport: true,
       skills: [
@@ -587,7 +587,7 @@ describe('SpecialistPackageService', () => {
       expectedRevision: bumped.revision,
       includedSkillIds: []
     })
-    expect(exported.fileName).toBe('open-science-specialist-research-synth-v2.0.0.zip')
+    expect(exported.fileName).toBe('research-agent-specialist-research-synth-v2.0.0.zip')
     expect(JSON.parse(strFromU8(unzipSync(exported.archiveBytes)['manifest.json']))).toMatchObject({
       id: 'research-synth',
       version: '2.0.0',
@@ -772,7 +772,7 @@ describe('SpecialistPackageService', () => {
 
     const first = await service.export(request)
     const second = await service.export(request)
-    expect(first.fileName).toBe('open-science-specialist-research-synthesizer-v1.3.0.zip')
+    expect(first.fileName).toBe('research-agent-specialist-research-synthesizer-v1.3.0.zip')
     expect(second.archiveBytes).toEqual(first.archiveBytes)
     const files = unzipSync(first.archiveBytes)
     expect(Object.keys(files).sort()).toEqual([

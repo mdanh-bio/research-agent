@@ -13,7 +13,7 @@ const fetchStars = async (fetchFn: FetchFn): Promise<number | null> => {
     const response = await fetchFn(APP.links.githubApi, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': 'open-science-app'
+        'User-Agent': 'research-agent-app'
       }
     })
 

@@ -23,7 +23,7 @@ describe('parseWebModeOptions', () => {
 
   it('rejects invalid ports', () => {
     expect(() => parseWebModeOptions(['electron', '--serve=nope'], {})).toThrow(
-      'Invalid Open Science web port'
+      'Invalid Research Agent web port'
     )
   })
 })

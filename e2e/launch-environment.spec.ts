@@ -11,17 +11,59 @@ test('normalizes a Windows-style Path before injecting the fake Agent directory'
   expect(environment.PATH).toBe(`fake-agent-bin${delimiter}system-bin`)
   expect(environment.Path).toBeUndefined()
   expect(environment.ELECTRON_RENDERER_URL).toBeUndefined()
-  expect(environment.OPEN_SCIENCE_E2E_STORAGE_ROOT).toBeUndefined()
-  expect(environment.OPEN_SCIENCE_STORAGE_ROOT).toBe('storage-root')
+  expect(environment.RESEARCH_AGENT_E2E_STORAGE_ROOT).toBeUndefined()
+  expect(environment.RESEARCH_AGENT_STORAGE_ROOT).toBe('storage-root')
+  expect(environment.OPEN_SCIENCE_STORAGE_ROOT).toBeUndefined()
 })
 
 test('isolates packaged certification storage without changing the process home', () => {
   const environment = launchEnvironment('storage-root', undefined, {
-    OPEN_SCIENCE_E2E_EXECUTABLE: '/artifacts/Open Science'
+    RESEARCH_AGENT_E2E_EXECUTABLE: '/artifacts/Research Agent'
   })
 
-  expect(environment.OPEN_SCIENCE_E2E_STORAGE_ROOT).toBe('storage-root')
-  expect(environment.OPEN_SCIENCE_STORAGE_ROOT).toBe('storage-root')
+  expect(environment.RESEARCH_AGENT_E2E_STORAGE_ROOT).toBe('storage-root')
+  expect(environment.RESEARCH_AGENT_STORAGE_ROOT).toBe('storage-root')
+  expect(environment.OPEN_SCIENCE_E2E_STORAGE_ROOT).toBeUndefined()
+})
+
+test('ignores a legacy packaged executable unless compatibility is explicitly enabled', () => {
+  const legacyExecutable = '/artifacts/Open Science'
+
+  expect(
+    electronLaunchTarget('profile-root', { OPEN_SCIENCE_E2E_EXECUTABLE: legacyExecutable }, 'linux')
+  ).toEqual({
+    args: ['--user-data-dir=profile-root', '--password-store=basic', expect.any(String)]
+  })
+  expect(
+    electronLaunchTarget(
+      'profile-root',
+      {
+        RESEARCH_AGENT_ALLOW_LEGACY_OPEN_SCIENCE_ENV: '1',
+        OPEN_SCIENCE_E2E_EXECUTABLE: legacyExecutable
+      },
+      'linux'
+    )
+  ).toEqual({
+    args: ['--user-data-dir=profile-root', '--password-store=basic'],
+    executablePath: legacyExecutable
+  })
+})
+
+test('prefers the Research Agent packaged executable when compatibility is enabled', () => {
+  expect(
+    electronLaunchTarget(
+      'profile-root',
+      {
+        RESEARCH_AGENT_ALLOW_LEGACY_OPEN_SCIENCE_ENV: '1',
+        RESEARCH_AGENT_E2E_EXECUTABLE: '/artifacts/Research Agent',
+        OPEN_SCIENCE_E2E_EXECUTABLE: '/artifacts/Open Science'
+      },
+      'linux'
+    )
+  ).toEqual({
+    args: ['--user-data-dir=profile-root', '--password-store=basic'],
+    executablePath: '/artifacts/Research Agent'
+  })
 })
 
 test('enables the basic password store only for Linux E2E profiles', () => {
@@ -41,13 +83,13 @@ test('launches packaged and source applications with the expected Linux argument
     electronLaunchTarget(
       'profile-root',
       {
-        OPEN_SCIENCE_E2E_EXECUTABLE: '/artifacts/Open Science.app/Contents/MacOS/Open Science'
+        RESEARCH_AGENT_E2E_EXECUTABLE: '/artifacts/Research Agent.app/Contents/MacOS/Research Agent'
       },
       'linux'
     )
   ).toEqual({
     args: ['--user-data-dir=profile-root', '--password-store=basic'],
-    executablePath: '/artifacts/Open Science.app/Contents/MacOS/Open Science'
+    executablePath: '/artifacts/Research Agent.app/Contents/MacOS/Research Agent'
   })
   expect(electronLaunchTarget('profile-root', {}, 'linux')).toEqual({
     args: ['--user-data-dir=profile-root', '--password-store=basic', expect.any(String)]

@@ -51,7 +51,7 @@ describe('compute host prisma client (integration)', () => {
     })
     expect(created.providerId).toBe('ssh:biowulf')
     expect(created.displayName).toBe('NIH Biowulf')
-    expect(created.shape).toBe('direct_ssh')
+    expect(created.shape).toBe('unclassified')
     expect(created.scratchPinned).toBe(false)
     expect(created.sshOverrides).toEqual({
       user: 'argocd',

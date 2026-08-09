@@ -54,7 +54,7 @@ const ACCESS_MODES: {
   {
     mode: 'remoteit',
     title: 'App access',
-    description: 'Open Open Science from the signed-in mobile app with two-step verification.',
+    description: 'Open Research Agent from the signed-in mobile app with two-step verification.',
     icon: RadioTower
   },
   {
@@ -248,9 +248,9 @@ export const RemoteControlPanel = (): React.JSX.Element => {
         title="Remote browser access"
         description={
           <>
-            Choose who can reach this computer&apos;s Open Science workspace. All projects, agents,
-            files, and notebook runtimes continue to run on this computer. Install and sign in to
-            the Remote.It desktop app before enabling access.{' '}
+            Choose who can reach this computer&apos;s Research Agent workspace. All projects,
+            agents, files, and notebook runtimes continue to run on this computer. Install and sign
+            in to the Remote.It desktop app before enabling access.{' '}
             <ExternalTextLink
               href={REMOTE_IT_DOWNLOAD_URL}
               className="box-decoration-clone rounded-sm bg-primary/10 px-1 py-0.5 font-medium text-primary underline decoration-primary/50 underline-offset-2 transition-colors hover:bg-primary/15 hover:decoration-primary"
@@ -339,8 +339,8 @@ export const RemoteControlPanel = (): React.JSX.Element => {
         {!snapshot.canManage ? (
           <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
             {snapshot.canManagePairing && accessUsesPairing
-              ? 'Remote access settings can only be changed from the Open Science desktop window on the home computer. Two-step verification requests and trusted browsers can be managed below.'
-              : 'Remote access settings can only be changed from the Open Science desktop window on the home computer.'}
+              ? 'Remote access settings can only be changed from the Research Agent desktop window on the home computer. Two-step verification requests and trusted browsers can be managed below.'
+              : 'Remote access settings can only be changed from the Research Agent desktop window on the home computer.'}
           </div>
         ) : null}
       </SettingsSection>
@@ -357,7 +357,7 @@ export const RemoteControlPanel = (): React.JSX.Element => {
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <p className="max-w-2xl text-[13px] leading-5 text-muted-foreground">
-              Open this computer from the signed-in mobile app. Open Science creates and maintains
+              Open this computer from the signed-in mobile app. Research Agent creates and maintains
               the local service automatically after this computer is added once.
             </p>
             {detectButton}
@@ -380,7 +380,7 @@ export const RemoteControlPanel = (): React.JSX.Element => {
                 </li>
                 <li>
                   <span className="font-medium">2.</span> Select this computer, then select{' '}
-                  <span className="font-medium">Open Science Remote</span>.
+                  <span className="font-medium">Research Agent Remote</span>.
                 </li>
                 <li>
                   <span className="font-medium">3.</span> Tap Connect or Launch, match the six-digit
@@ -408,7 +408,7 @@ export const RemoteControlPanel = (): React.JSX.Element => {
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <p className="max-w-2xl text-[13px] leading-5 text-muted-foreground">
-              Open a persistent HTTPS address from any modern browser. Open Science creates and
+              Open a persistent HTTPS address from any modern browser. Research Agent creates and
               maintains the public browser service automatically.
             </p>
             {detectButton}
@@ -467,7 +467,7 @@ export const RemoteControlPanel = (): React.JSX.Element => {
                     marginSize={2}
                     bgColor="#ffffff"
                     fgColor="#111827"
-                    title="Scan to open Open Science"
+                    title="Scan to open Research Agent"
                   />
                   <div className="mt-1 text-center text-[11px] font-medium text-slate-700">
                     Scan to open
@@ -600,7 +600,7 @@ export const RemoteControlPanel = (): React.JSX.Element => {
       ) : null}
 
       <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-        Remote.It is a third-party service. Open Science only calls its user-installed desktop CLI
+        Remote.It is a third-party service. Research Agent only calls its user-installed desktop CLI
         and does not include, redistribute, register, or create an account for it.
       </p>
     </div>

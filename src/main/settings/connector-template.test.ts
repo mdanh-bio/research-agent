@@ -268,7 +268,7 @@ describe('Connector configuration templates', () => {
     expect(result.preview).toMatchObject({
       ready: true,
       connectorId: 'local-id',
-      suggestedFileName: 'open-science-connector-example-server.json'
+      suggestedFileName: 'research-agent-connector-example-server.json'
     })
     expect(result.preview.digest).toMatch(/^[a-f0-9]{64}$/)
     expect(result.contents).toContain('"environment": [')

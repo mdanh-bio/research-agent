@@ -812,7 +812,7 @@ class AcpPermissionBroker {
       sessionId: input.sessionId,
       toolCallId: `app-approval:${requestId}`,
       title: input.title,
-      providerToolName: 'Open Science',
+      providerToolName: 'Research Agent',
       rawInput: input.rawInput,
       options: [
         { optionId: approveOptionId, name: 'Approve', kind: 'allow_once', scope: 'once' },

@@ -119,7 +119,7 @@ export function renderConnectorInstructions(skillNames: string[]): string {
   const availableSkills = enabledSkillNames.map((name) => `\`${name}\``).join(', ')
 
   return (
-    `# Open Science data connector conventions\n\n` +
+    `# Research Agent data connector conventions\n\n` +
     `Globally Enabled Connector Skills: ${availableSkills}.\n\n` +
     `A Specialist session may narrow this catalog. When an \`Allowed Specialist Skills for this session\` list is present, it is authoritative: do not load or call any \`mcp-*\` skill absent from that list.\n\n` +
     `Detailed instructions, exact server/method names, schemas, return shapes, and examples are available through the matching \`mcp-*\` skill. Load the matching \`mcp-*\` skill before the first \`host.mcp\` call. Never guess a connector server or method name; if the matching skill is not loaded, do not call the connector.\n\n` +

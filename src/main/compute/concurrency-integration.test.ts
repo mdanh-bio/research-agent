@@ -16,6 +16,26 @@ import type { SshRunner } from './ssh-runner'
 import type { ScpRunner } from './scp-runner'
 import { computeProviderId, type ComputeJob } from '../../shared/compute'
 
+// Keep submission tests hermetic: resolve a complete, stable target without spawning ssh -G.
+vi.mock('./ssh-runner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ssh-runner')>()
+  return {
+    ...actual,
+    resolveSshTarget: vi.fn(async (alias: string) => ({
+      sshBinary: '/usr/bin/ssh',
+      host: alias,
+      extraArgs: ['-o', 'BatchMode=yes'],
+      connectionIdentity: {
+        configResolved: true,
+        alias,
+        hostname: `${alias}.example.test`,
+        port: 22,
+        effectiveConfigHash: 'a'.repeat(64)
+      }
+    }))
+  }
+})
+
 // Mock the job-dispatcher module to prevent real SSH dispatches
 vi.mock('./job-dispatcher', async () => {
   const actual = await vi.importActual('./job-dispatcher')
@@ -70,10 +90,21 @@ describe('ConcurrencyManager integration with ComputeService', () => {
     jobRepo = new ComputeJobRepository(() => Promise.resolve(client))
 
     // Create test host
-    await hostRepo.create({
+    const host = await hostRepo.create({
       sshAlias: 'test-host',
       displayName: 'Test Host'
     })
+    await hostRepo.updateProbeResult(
+      host.providerId,
+      {
+        ok: true,
+        probedAt: '2026-08-10T00:00:00.000Z',
+        exitCode: 0,
+        errorTail: null,
+        detectedScheduler: 'none'
+      },
+      'direct_ssh'
+    )
 
     // Mock dispatch function for ConcurrencyManager
     const mockDispatch = vi.fn(async (jobId: string) => {

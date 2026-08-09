@@ -51,7 +51,7 @@ export const isMigrationPending = (): boolean => pending
 export const assertNoMigrationPending = (): void => {
   if (pending) {
     throw new Error(
-      'Open Science is moving your data. Wait for the move to finish before running this.'
+      'Research Agent is moving your data. Wait for the move to finish before running this.'
     )
   }
 }
@@ -104,7 +104,7 @@ const defaultConfirmQuit = (): boolean =>
     defaultId: 0,
     cancelId: 0,
     title: 'Move in progress',
-    message: 'Open Science is still moving your data.',
+    message: 'Research Agent is still moving your data.',
     detail:
       'Your data is safe either way, but quitting now leaves the move unfinished — you may need to start it again. Keep the app open until it finishes.'
   }) === 1

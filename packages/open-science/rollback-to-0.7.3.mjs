@@ -408,7 +408,7 @@ const resolveConfiguredDataRoot = async (configRoot) => {
   const hasLegacyData = await Promise.all(
     DATA_DIRECTORIES.map((directory) => exists(join(configRoot, directory)))
   ).then((values) => values.some(Boolean))
-  return hasLegacyData ? configRoot : join(homedir(), 'OpenScience')
+  return hasLegacyData ? configRoot : join(homedir(), 'ResearchAgent')
 }
 
 const readActivatedRollback = async (configRoot, requestedOutput) => {
@@ -811,7 +811,7 @@ export const runRollbackToV073 = async (options = {}) => {
   }
   const now = options.now ?? Date.now
   const stamp = formatStamp(now())
-  const configRoot = resolve(options.configRoot ?? join(homedir(), '.open-science'))
+  const configRoot = resolve(options.configRoot ?? join(homedir(), '.research-agent'))
   const requestedOutput = options.output ? resolve(options.output) : undefined
   const recoveredCutover = await recoverInterruptedCutover(configRoot, requestedOutput)
   if (recoveredCutover) return recoveredCutover

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Force the fallback micromamba resolver to "not found" so the "cannot be resolved" case is
 // deterministic regardless of whether the host machine happens to have micromamba on PATH (a dev box
@@ -20,6 +20,7 @@ import {
 } from './package-manager'
 import { micromambaCacheLockKey, selectMicromambaCache } from './micromamba-cache'
 import { withExclusiveCacheLock } from './pkgs-cache-lock'
+import { PROD_SESSION_DIR_NAME } from '../session-persistence/repository'
 import {
   envPrefix,
   pipBin,
@@ -94,6 +95,8 @@ const base = {
   })
 }
 
+afterEach(() => vi.unstubAllEnvs())
+
 describe('defaultSpawn (fail-closed spawn hooks)', () => {
   it('calls onBeforeSpawn before spawning, and fails closed (no spawn) when it throws', async () => {
     const order: string[] = []
@@ -142,6 +145,46 @@ describe('defaultSpawn (fail-closed spawn hooks)', () => {
 })
 
 describe('installPackages', () => {
+  it('uses the Research Agent storage override and ignores an ungated legacy override', async () => {
+    vi.stubEnv('RESEARCH_AGENT_STORAGE_ROOT', '/research-agent-root')
+    vi.stubEnv('OPEN_SCIENCE_STORAGE_ROOT', '/legacy-root')
+    const { spawn } = scriptedSpawn([ok])
+
+    const result = await installPackages(
+      { language: 'python', packages: ['numpy'] },
+      { spawn, ...base, storageRoot: undefined }
+    )
+
+    expect(result.prefix).toBe(envPrefix(runtimeRoot('/research-agent-root'), DEFAULT_PY_ENV))
+  })
+
+  it('falls back to the isolated Research Agent root when only an ungated legacy override exists', async () => {
+    vi.stubEnv('OPEN_SCIENCE_STORAGE_ROOT', '/legacy-root')
+    const { spawn } = scriptedSpawn([ok])
+
+    const result = await installPackages(
+      { language: 'python', packages: ['numpy'] },
+      { spawn, ...base, storageRoot: undefined }
+    )
+
+    expect(result.prefix).toBe(
+      envPrefix(runtimeRoot(join(homedir(), PROD_SESSION_DIR_NAME)), DEFAULT_PY_ENV)
+    )
+  })
+
+  it('accepts the legacy storage override only through the compatibility opt-in', async () => {
+    vi.stubEnv('RESEARCH_AGENT_ALLOW_LEGACY_OPEN_SCIENCE_ENV', '1')
+    vi.stubEnv('OPEN_SCIENCE_STORAGE_ROOT', '/legacy-root')
+    const { spawn } = scriptedSpawn([ok])
+
+    const result = await installPackages(
+      { language: 'python', packages: ['numpy'] },
+      { spawn, ...base, storageRoot: undefined }
+    )
+
+    expect(result.prefix).toBe(envPrefix(runtimeRoot('/legacy-root'), DEFAULT_PY_ENV))
+  })
+
   it('forwards the installer child PID through onChild (for crash-recovery journaling)', async () => {
     // A spawn that reports a pid via its 4th (onChild) argument, as the real defaultSpawn does.
     const spawn: InstallSpawn = async (_command, _args, _env, onChild) => {

@@ -192,7 +192,7 @@ export type StoredSettings = {
   // Absent means it still needs to run (or a previous attempt failed and should retry).
   pathsNormalizedAt?: number
   // Set once the user has answered the one-time "move your legacy .open-science data into the
-  // visible OpenScience folder" prompt (by moving, choosing another folder, or declining). Absent
+  // visible ResearchAgent folder" prompt (by moving, choosing another folder, or declining). Absent
   // means it has never been answered, so an eligible legacy install may still be offered the prompt.
   legacyDataMovePromptDismissedAt?: number
   // Per-language notebook runtime choice: the app-managed conda env, or the user's own interpreter

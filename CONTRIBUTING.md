@@ -1,8 +1,9 @@
-# Contributing to Open Science
+# Contributing to Research Agent
 
-Thanks for your interest in contributing! This document explains how to set up
-the project, the workflow we follow, and the checks your change must pass before
-it can be merged.
+Research Agent is a private, personal fork of AIPOCH Open Science. This document explains how an
+authorized contributor sets up the private checkout, follows the repository's trust boundaries, and
+validates a change. Read [AGENTS.md](AGENTS.md), [KNOWLEDGE.md](KNOWLEDGE.md), and
+[knowledge/current-state.md](knowledge/current-state.md) before substantial work.
 
 ## Code of Conduct
 
@@ -16,23 +17,42 @@ project for everyone.
 
 - [Node.js](https://nodejs.org/) 22 (see [`.nvmrc`](.nvmrc)) and npm
 - Git
+- Apple-Silicon macOS for supported local packaging and application smoke checks
 
 ### Setup
 
 ```bash
-git clone https://github.com/aipoch/open-science.git
-cd open-science
+git clone https://github.com/mdanh-bio/research-agent.git
+cd research-agent
 npm install
 ```
 
 `npm install` runs a `postinstall` step that generates the Prisma client and
-installs native Electron app dependencies.
+installs native Electron app dependencies. It executes code from the checkout, so review the source
+and lockfile first. Keep `origin` pointed at the private fork and `upstream` pointed at
+`https://github.com/aipoch/open-science.git`; follow [docs/upstream-sync.md](docs/upstream-sync.md)
+instead of merging an upstream release directly into `main`.
 
 ### Run in development
 
 ```bash
 npm run dev
 ```
+
+Development config and sessions live under `~/.research-agent-project`; development data,
+environments, and artifacts live under `~/ResearchAgent-DEV`. Packaged builds use
+`~/.research-agent` and `~/ResearchAgent`. Do not redirect mutable state into the AIPOCH Open Science
+roots.
+
+The private CLI executable is `research-agent`, not `open-science`. The source package remains under
+`packages/open-science` only as an inherited compatibility path:
+
+```bash
+node packages/open-science/cli.mjs --help
+```
+
+Research Agent has no public npm package, installer release, or update feed. Publishing, tagging,
+signing, notarization, pushing, or other external writes require the owner's explicit authorization.
 
 ## Coding-agent navigation
 
@@ -247,8 +267,9 @@ ci(review): unify automated AI reviews
 - After the pull request checks pass, merge it directly using **squash merge only**. Do not update the
   branch only because `main` advanced; update it when it has merge conflicts or a maintainer requests
   it. The squash commit subject must keep the pull request title's Conventional Commit format.
-- Non-documentation changes merged into `main` trigger the [Nightly workflow](.github/workflows/nightly.yml),
-  which runs post-merge verification and cross-platform package certification on the resulting commit.
+- The inherited [Nightly workflow](.github/workflows/nightly.yml) is manual-only in this private fork.
+  Run it deliberately when cross-platform package evidence is needed; merging does not publish or
+  schedule a release.
 
 ## Reporting Issues
 
@@ -259,10 +280,11 @@ When filing a bug report, please include:
 - Your operating system and app version.
 - Relevant logs or screenshots, if available.
 
-## Publishing the npm Package
+## Private package verification
 
-Maintainers should follow the [npm package release guide](docs/npm-release.md). npm package versions
-use `npm-v*` tags and are published through the protected `Publish npm package` workflow.
+The CLI package is private and is not published. Follow the
+[private package verification guide](docs/npm-release.md); do not create npm release tags or add
+publishing credentials without a separate owner-approved design.
 
 ## License
 

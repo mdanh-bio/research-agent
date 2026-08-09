@@ -8,7 +8,11 @@ import type {
   ProbeResult,
   SshOverrides
 } from '../../shared/compute'
-import { computeProviderId, DETAILS_DOC_MAX_LENGTH } from '../../shared/compute'
+import {
+  computeProviderId,
+  DETAILS_DOC_MAX_LENGTH,
+  normalizeComputeSshAlias
+} from '../../shared/compute'
 
 // Only the computeHost delegate is needed; typing to this subset keeps the repository unit-testable
 // with a lightweight mock instead of a real (engine-backed) PrismaClient (aligns with the reviewer and
@@ -30,35 +34,47 @@ const parseJson = <T>(value: string | null): T | undefined => {
   }
 }
 
-// Narrows the free-text shape column back to the domain union, defaulting unknown values to
-// 'direct_ssh' so a corrupt row still renders as a plain host rather than crashing.
+// Narrows the free-text shape column back to the domain union. Unknown/corrupt values must never
+// inherit executable direct-SSH semantics.
 const asShape = (value: string): ComputeHostShape =>
-  value === 'scheduler_cluster' || value === 'bridge_runner' || value === 'direct_ssh'
+  value === 'unclassified' ||
+  value === 'scheduler_cluster' ||
+  value === 'bridge_runner' ||
+  value === 'direct_ssh'
     ? value
-    : 'direct_ssh'
+    : 'unclassified'
+
+const effectiveShape = (storedShape: string, probe: ProbeResult | undefined): ComputeHostShape => {
+  if (asShape(storedShape) === 'bridge_runner') return 'bridge_runner'
+  if (!probe?.ok || probe.exitCode !== 0 || !probe.detectedScheduler) return 'unclassified'
+  return probe.detectedScheduler === 'none' ? 'direct_ssh' : 'scheduler_cluster'
+}
 
 const asAuthor = (value: string | null): DetailsAuthor | undefined =>
   value === 'user' || value === 'agent' ? value : undefined
 
 // Maps a Prisma row (JSON strings + DateTime + nullable columns) into the epoch-ms domain shape shared
 // with the renderer.
-const toHost = (row: PrismaComputeHost): ComputeHost => ({
-  id: row.id,
-  providerId: row.providerId,
-  displayName: row.displayName,
-  shape: asShape(row.shape),
-  sshAlias: row.sshAlias,
-  sshOverrides: parseJson<SshOverrides>(row.sshOverrides),
-  scratchRoot: row.scratchRoot ?? undefined,
-  scratchPinned: row.scratchPinned,
-  concurrencyLimit: row.concurrencyLimit ?? undefined,
-  probeResult: parseJson<ProbeResult>(row.probeResult),
-  detailsDoc: row.detailsDoc,
-  detailsUpdatedAt: row.detailsUpdatedAt?.getTime(),
-  detailsUpdatedBy: asAuthor(row.detailsUpdatedBy),
-  createdAt: row.createdAt.getTime(),
-  updatedAt: row.updatedAt.getTime()
-})
+const toHost = (row: PrismaComputeHost): ComputeHost => {
+  const probeResult = parseJson<ProbeResult>(row.probeResult)
+  return {
+    id: row.id,
+    providerId: row.providerId,
+    displayName: row.displayName,
+    shape: effectiveShape(row.shape, probeResult),
+    sshAlias: row.sshAlias,
+    sshOverrides: parseJson<SshOverrides>(row.sshOverrides),
+    scratchRoot: row.scratchRoot ?? undefined,
+    scratchPinned: row.scratchPinned,
+    concurrencyLimit: row.concurrencyLimit ?? undefined,
+    probeResult,
+    detailsDoc: row.detailsDoc,
+    detailsUpdatedAt: row.detailsUpdatedAt?.getTime(),
+    detailsUpdatedBy: asAuthor(row.detailsUpdatedBy),
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime()
+  }
+}
 
 // Drops undefined/empty fields so an empty overrides object is stored as null (not "{}"). Security:
 // only user/port/identityFile are ever serialized here — never a credential or key (design.md §1).
@@ -98,10 +114,7 @@ class ComputeHostRepository {
   // Creates a host record. Validates the alias, the 32 KiB details cap, and rejects a duplicate
   // provider_id with a readable error before inserting. No SSH connection is made in Phase 1.
   async create(request: CreateComputeHostRequest): Promise<ComputeHost> {
-    const alias = request.sshAlias.trim()
-    if (!alias) {
-      throw new Error('An SSH host alias is required.')
-    }
+    const alias = normalizeComputeSshAlias(request.sshAlias)
 
     const detailsDoc = request.detailsDoc ?? ''
     if (detailsDoc.length > DETAILS_DOC_MAX_LENGTH) {
@@ -129,6 +142,7 @@ class ComputeHostRepository {
       data: {
         providerId,
         displayName,
+        shape: 'unclassified',
         sshAlias: alias,
         sshOverrides: serializeOverrides(request.sshOverrides),
         detailsDoc,

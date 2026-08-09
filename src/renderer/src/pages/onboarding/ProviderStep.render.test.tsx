@@ -470,10 +470,10 @@ describe('ProviderStep', () => {
     expect(saveAndActivateProvider).toHaveBeenCalledOnce()
   })
 
-  // Switches the auth picker to the isolated "Sign in with Open Science" mode — the only path that
+  // Switches the auth picker to the isolated "Sign in with Research Agent" mode — the only path that
   // runs the browser login (loginIsolatedCodex).
   const switchToIsolatedSignIn = async (): Promise<void> => {
-    await selectOption('Codex authentication', 'Sign in with Open Science')
+    await selectOption('Codex authentication', 'Sign in with Research Agent')
   }
 
   it('runs the isolated Codex sign-in then advances', async () => {

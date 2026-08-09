@@ -85,7 +85,7 @@ describe('RemoteSessionPairingManager', () => {
     expect(firstResponse.body()).toContain('<html lang="en">')
     expect(firstResponse.body()).toContain('class="brand-logo"')
     expect(firstResponse.body()).toContain('fill="currentColor"')
-    expect(firstResponse.body()).toContain('<div class="brand-name">Open Science</div>')
+    expect(firstResponse.body()).toContain('<div class="brand-name">Research Agent</div>')
     expect(firstResponse.body()).not.toContain('>Beta<')
     expect(firstResponse.body()).not.toContain('class="mark"')
     expect(firstResponse.body()).toContain('Approve this browser')

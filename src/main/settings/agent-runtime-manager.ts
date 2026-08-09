@@ -57,6 +57,7 @@ import {
 } from './managed-claude'
 import {
   installManagedOpencode,
+  OPENCODE_VERSION,
   isManagedOpencodePath,
   managedOpencodeDir,
   uninstallManagedOpencode,
@@ -478,7 +479,8 @@ export class AgentRuntimeManager {
       const outcome = await this.installManagedOpencodeImpl({
         installId,
         onEvent,
-        dataRoot: this.storageRoot
+        dataRoot: this.storageRoot,
+        version: OPENCODE_VERSION
       })
       if (outcome.result.ok && outcome.resolvedPath) {
         await this.repository.setOpencodeInfo(outcome.resolvedPath, outcome.version)
@@ -668,7 +670,7 @@ export class AgentRuntimeManager {
     const adapterPath =
       this.codexDetectDeps.managedAdapterPath ?? managedCodexAdapterEntry(this.storageRoot)
     if (!(await this.pathExists(adapterPath))) {
-      throw new Error('Open Science Codex ACP adapter not found. Install Codex in settings.')
+      throw new Error('Research Agent Codex ACP adapter not found. Install Codex in settings.')
     }
 
     await ensureManagedCodexContextUsage(adapterPath)
@@ -862,7 +864,7 @@ export class AgentRuntimeManager {
     const components = await detectCodexComponents(this.codexDetectDeps)
     let diagnostic: string | undefined
     if (components.nativeCliFound && !components.adapterFound) {
-      diagnostic = `Native Codex ${components.nativeCliVersion} is installed at ${components.nativeCliPath}, but the Codex ACP adapter required by Open Science is missing.`
+      diagnostic = `Native Codex ${components.nativeCliVersion} is installed at ${components.nativeCliPath}, but the Codex ACP adapter required by Research Agent is missing.`
     } else if (!components.nativeCliFound && components.adapterFound) {
       diagnostic =
         components.adapterFailureReason === 'smoke-test-failed'

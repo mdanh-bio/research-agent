@@ -1,7 +1,8 @@
 {
-  "name": "@aipoch/open-science",
+  "name": "@mdanh-bio/research-agent",
   "version": "0.1.0",
-  "description": "Node.js SDK and CLI for the Open Science local daemon",
+  "description": "Node.js SDK and CLI for the Research Agent local daemon",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {
@@ -10,7 +11,7 @@
     }
   },
   "bin": {
-    "open-science": "./cli.mjs"
+    "research-agent": "./cli.mjs"
   },
   "files": [
     "*.mjs",
@@ -25,10 +26,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aipoch/open-science.git",
+    "url": "git+https://github.com/mdanh-bio/research-agent.git",
     "directory": "packages/open-science"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

@@ -68,7 +68,7 @@ const DeleteProjectDialog = ({
                     ? ` and its ${dialogSessionCount} ${dialogSessionCount === 1 ? 'session' : 'sessions'}`
                     : ''
                   : ' and all of its saved conversations, including any that could not be loaded during recovery'}
-                . Generated artifacts and uploaded files stored by Open Science will also be
+                . Generated artifacts and uploaded files stored by Research Agent will also be
                 deleted. Files in the project&apos;s working folder are not deleted. This action
                 cannot be undone.
               </AlertDialog.Description>

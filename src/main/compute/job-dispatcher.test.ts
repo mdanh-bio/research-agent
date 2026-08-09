@@ -10,6 +10,7 @@ import type { ComputeJob } from '../../shared/compute'
 import type { ComputeHostRepository } from './repository'
 import type { ComputeJobRepository } from './job-repository'
 import type { SshRunner, ResolvedSshTarget } from './ssh-runner'
+import { resolveSshTarget } from './ssh-runner'
 import type { ScpRunner } from './scp-runner'
 import {
   dispatchJob,
@@ -21,6 +22,10 @@ import {
   quoteRemotePath
 } from './job-dispatcher'
 import { DispatchTracker } from './dispatch-tracker'
+import {
+  buildApprovedDispatchBinding,
+  resolveAuthorizedLocalInputPath
+} from './compute-dispatch-binding'
 
 // Mock resolveSshTarget at module level so all tests bypass the real ssh -G call.
 vi.mock('./ssh-runner', async (importOriginal) => {
@@ -31,7 +36,14 @@ vi.mock('./ssh-runner', async (importOriginal) => {
       Promise.resolve({
         sshBinary: '/usr/bin/ssh',
         host: 'biowulf.nih.gov',
-        extraArgs: ['-o', 'BatchMode=yes']
+        extraArgs: ['-o', 'BatchMode=yes'],
+        connectionIdentity: {
+          configResolved: true,
+          alias: 'biowulf',
+          hostname: 'biowulf.nih.gov',
+          port: 22,
+          effectiveConfigHash: 'a'.repeat(64)
+        }
       } as ResolvedSshTarget)
     )
   }
@@ -45,35 +57,18 @@ const makeSshRunner = (result: Awaited<ReturnType<SshRunner['run']>>): SshRunner
   run: vi.fn(() => Promise.resolve(result))
 })
 
-const makeJob = (overrides: Partial<ComputeJob> = {}): ComputeJob => ({
-  job_id: 'job-1',
-  provider_id: 'ssh:biowulf',
-  shape: 'direct_ssh',
-  session_id: 'sess-1',
-  project_id: 'proj-1',
-  status: 'submitted',
-  intent: 'smoke test',
-  command: 'echo hello',
-  command_hash: 'abc',
-  environment: undefined,
-  resource_request: undefined,
-  input_manifest: undefined,
-  output_manifest: undefined,
-  harvest_config: undefined,
-  timeout_seconds: 3600,
-  remote_workdir: '~/.openscience/jobs/job-1',
-  remote_handle: undefined,
-  exit_code: undefined,
-  stdout_tail: undefined,
-  stderr_tail: undefined,
-  error_code: undefined,
-  created_at: Date.now(),
-  submitted_at: Date.now(),
-  started_at: undefined,
-  finished_at: undefined,
-  harvested_at: undefined,
-  ...overrides
-})
+const approvedTarget: ResolvedSshTarget = {
+  sshBinary: '/usr/bin/ssh',
+  host: 'biowulf.nih.gov',
+  extraArgs: ['-o', 'BatchMode=yes'],
+  connectionIdentity: {
+    configResolved: true,
+    alias: 'biowulf',
+    hostname: 'biowulf.nih.gov',
+    port: 22,
+    effectiveConfigHash: 'a'.repeat(64)
+  }
+}
 
 type HostRepo = Pick<ComputeHostRepository, 'get'>
 type JobRepo = Pick<ComputeJobRepository, 'get' | 'update'>
@@ -106,13 +101,54 @@ const sampleHost = (): import('../../shared/compute').ComputeHost => ({
   scratchRoot: undefined,
   scratchPinned: false,
   concurrencyLimit: undefined,
-  probeResult: undefined,
+  probeResult: {
+    ok: true,
+    probedAt: '2026-08-10T00:00:00.000Z',
+    exitCode: 0,
+    errorTail: null,
+    detectedScheduler: 'none'
+  },
   detailsDoc: '',
   detailsUpdatedAt: undefined,
   detailsUpdatedBy: undefined,
   createdAt: 1,
   updatedAt: 1
 })
+
+const makeJob = (overrides: Partial<ComputeJob> = {}): ComputeJob => {
+  const command = overrides.command ?? 'echo hello'
+  const commandHash = overrides.command_hash ?? hashCommand(command)
+  const binding = buildApprovedDispatchBinding(sampleHost(), approvedTarget, [], commandHash)
+  return {
+    job_id: 'job-1',
+    provider_id: 'ssh:biowulf',
+    shape: 'direct_ssh',
+    session_id: 'sess-1',
+    project_id: 'proj-1',
+    status: 'submitted',
+    intent: 'smoke test',
+    command,
+    command_hash: commandHash,
+    environment: undefined,
+    resource_request: undefined,
+    input_manifest: JSON.stringify(binding),
+    output_manifest: undefined,
+    harvest_config: undefined,
+    timeout_seconds: 3600,
+    remote_workdir: '~/.openscience/jobs/job-1',
+    remote_handle: undefined,
+    exit_code: undefined,
+    stdout_tail: undefined,
+    stderr_tail: undefined,
+    error_code: undefined,
+    created_at: Date.now(),
+    submitted_at: Date.now(),
+    started_at: undefined,
+    finished_at: undefined,
+    harvested_at: undefined,
+    ...overrides
+  }
+}
 
 const launcherFixtures: string[] = []
 
@@ -264,12 +300,12 @@ describe('hashCommand', () => {
 describe('computeRemoteWorkdir', () => {
   it('uses scratchRoot when set', () => {
     expect(computeRemoteWorkdir('/gpfs/scratch', 'job-123')).toBe(
-      '/gpfs/scratch/.openscience/jobs/job-123'
+      '/gpfs/scratch/.research-agent/jobs/job-123'
     )
   })
 
   it('falls back to ~ when scratchRoot is undefined', () => {
-    expect(computeRemoteWorkdir(undefined, 'job-123')).toBe('~/.openscience/jobs/job-123')
+    expect(computeRemoteWorkdir(undefined, 'job-123')).toBe('~/.research-agent/jobs/job-123')
   })
 })
 
@@ -325,6 +361,77 @@ describe('dispatchJob', () => {
     const handle = JSON.parse(updateCall.remoteHandle as string)
     expect(handle.pid).toBe(12345)
     expect(onJobUpdated).toHaveBeenCalled()
+  })
+
+  it('never invokes the direct launcher when the host becomes scheduler-classified mid-dispatch', async () => {
+    const job = makeJob()
+    const directHost = sampleHost()
+    const schedulerHost = {
+      ...directHost,
+      shape: 'scheduler_cluster' as const,
+      probeResult: {
+        ok: true,
+        probedAt: '2026-08-10T00:01:00.000Z',
+        exitCode: 0,
+        errorTail: null,
+        detectedScheduler: 'slurm' as const
+      }
+    }
+    const getHost = vi.fn().mockResolvedValueOnce(directHost).mockResolvedValue(schedulerHost)
+    const runner = makeSshRunner({
+      exitCode: 0,
+      stdout: '12345\n',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+    const { repo, update } = makeJobRepo(job)
+
+    await dispatchJob(job.job_id, {
+      runner,
+      hostRepository: { get: getHost } as unknown as ComputeHostRepository,
+      jobRepository: repo as unknown as ComputeJobRepository
+    })
+
+    expect(update).toHaveBeenCalledWith(
+      job.job_id,
+      expect.objectContaining({ status: 'error', errorCode: 'approval_stale' })
+    )
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
+  it('never invokes the direct launcher when SSH options change after approval', async () => {
+    const changedTarget: ResolvedSshTarget = {
+      ...approvedTarget,
+      extraArgs: [...approvedTarget.extraArgs, '-p', '2222'],
+      connectionIdentity: {
+        ...approvedTarget.connectionIdentity!,
+        port: 2222,
+        effectiveConfigHash: 'b'.repeat(64)
+      }
+    }
+    vi.mocked(resolveSshTarget).mockResolvedValueOnce(changedTarget)
+    const job = makeJob()
+    const runner = makeSshRunner({
+      exitCode: 0,
+      stdout: '12345\n',
+      stderr: '',
+      truncated: false,
+      timedOut: false
+    })
+    const { repo, update } = makeJobRepo(job)
+
+    await dispatchJob(job.job_id, {
+      runner,
+      hostRepository: makeHostRepo(sampleHost()) as unknown as ComputeHostRepository,
+      jobRepository: repo as unknown as ComputeJobRepository
+    })
+
+    expect(update).toHaveBeenCalledWith(
+      job.job_id,
+      expect.objectContaining({ status: 'error', errorCode: 'approval_stale' })
+    )
+    expect(runner.run).not.toHaveBeenCalled()
   })
 
   it('marks the job in-flight in the tracker during dispatch and clears it afterward', async () => {
@@ -478,11 +585,7 @@ describe('dispatchJob', () => {
 // ---------------------------------------------------------------------------
 
 describe('stageInputs', () => {
-  const fakeTarget: ResolvedSshTarget = {
-    sshBinary: '/usr/bin/ssh',
-    host: 'biowulf.nih.gov',
-    extraArgs: ['-o', 'BatchMode=yes']
-  }
+  const fakeTarget = approvedTarget
 
   const makeScpRunner = (exitCode = 0): ScpRunner => ({
     copy: vi.fn(async () => ({ exitCode, stderr: exitCode !== 0 ? 'error' : '', timedOut: false }))
@@ -503,7 +606,14 @@ describe('stageInputs', () => {
     const runner = makeSshRunnerForStagingLn(0)
     await stageInputs(
       [
-        { kind: 'upload', localPath: '/local/data.csv', dstFilename: 'data.csv', label: 'data.csv' }
+        {
+          kind: 'upload',
+          sourcePath: '/local/data.csv',
+          localPath: '/local/data.csv',
+          authorizedRoot: '/local',
+          dstFilename: 'data.csv',
+          label: 'data.csv'
+        }
       ],
       '/remote/workdir',
       runner,
@@ -552,7 +662,16 @@ describe('stageInputs', () => {
     const runner = makeSshRunnerForStagingLn(0)
     await expect(
       stageInputs(
-        [{ kind: 'upload', localPath: '/local/a.csv', dstFilename: 'a.csv', label: 'a.csv' }],
+        [
+          {
+            kind: 'upload',
+            sourcePath: '/local/a.csv',
+            localPath: '/local/a.csv',
+            authorizedRoot: '/local',
+            dstFilename: 'a.csv',
+            label: 'a.csv'
+          }
+        ],
         '/remote/workdir',
         runner,
         fakeTarget,
@@ -585,11 +704,31 @@ describe('stageInputs', () => {
 
 describe('dispatchJob — staging integration', () => {
   it('transitions to dispatch_failed when staging scp fails', async () => {
-    // Job with a manifest containing an upload entry.
+    const inputDir = mkdtempSync(join(tmpdir(), 'approved-dispatch-input-'))
+    launcherFixtures.push(inputDir)
+    const localPath = join(inputDir, 'a.csv')
+    const inputContents = 'data\n'
+    writeFileSync(localPath, inputContents)
+    const authorized = await resolveAuthorizedLocalInputPath(localPath, inputDir)
+    const binding = buildApprovedDispatchBinding(
+      sampleHost(),
+      approvedTarget,
+      [
+        {
+          kind: 'upload',
+          ...authorized,
+          dstFilename: 'a.csv',
+          label: 'a.csv',
+          contentIdentity: {
+            sizeBytes: Buffer.byteLength(inputContents),
+            sha256: hashCommand(inputContents)
+          }
+        }
+      ],
+      hashCommand('echo hello')
+    )
     const job = makeJob({
-      input_manifest: JSON.stringify([
-        { kind: 'upload', localPath: '/local/a.csv', dstFilename: 'a.csv', label: 'a.csv' }
-      ])
+      input_manifest: JSON.stringify(binding)
     })
     // SSH runner succeeds for mkdir, ScpRunner fails for scp.
     const runner = makeSshRunner({

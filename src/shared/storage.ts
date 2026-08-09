@@ -20,7 +20,7 @@ export type StorageInfo = {
   // `~/OpenScience` simply hasn't been created yet.
   dataRootMissing: boolean
   // True when this is a pre-§20 legacy install whose data still lives in the hidden config root and
-  // the user hasn't yet answered the one-time "move it into the visible OpenScience folder" prompt.
+  // the user hasn't yet answered the one-time "move it into the visible ResearchAgent folder" prompt.
   // Drives the first-run LegacyDataMoveDialog; once answered (moved/relocated/declined) it stays false.
   legacyDataMovePrompt: boolean
   usage: StorageUsage

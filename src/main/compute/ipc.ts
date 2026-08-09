@@ -54,6 +54,7 @@ import { workspaceRelativePath } from './workspace-path'
 import type { PermissionGrantRegistry } from '../permission-grants/registry'
 import { createComputePermissionGrantAdapter } from './permission-grant-adapter'
 import { hasCanonicalComputeSkillDoc, syncComputeSkillDoc } from './skill-doc'
+import { readComputeApprovalResponse } from './compute-approval-response'
 
 // IPC channel names for the renderer job feed (Phase 3d, issue 05).
 export const COMPUTE_JOBS_LIST_CHANNEL = 'compute:jobs:list'
@@ -590,12 +591,10 @@ const registerComputeIpcHandlerSet = ({
   })
   // Renderer responds to an in-flight approval card (issue 04/05). Decision now carries the
   // chosen scope: 'once' | 'conversation' | 'project' | 'deny'.
-  ipcMainHandle(
-    'compute:approval-respond',
-    (_event, request: { id: string; decision: ComputeApprovalDecision }) => {
-      handlers.approvalRespond(request.id, request.decision)
-    }
-  )
+  ipcMainHandle('compute:approval-respond', (_event, request: unknown) => {
+    const response = readComputeApprovalResponse(request)
+    handlers.approvalRespond(response.id, response.decision)
+  })
   ipcMainHandle('compute:approval-replay', (_event, id: unknown) =>
     typeof id === 'string' ? handlers.approvalReplay(id) : null
   )

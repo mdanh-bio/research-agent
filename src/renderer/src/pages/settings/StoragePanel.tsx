@@ -238,7 +238,7 @@ const StoragePanel = ({ onContinueToAgent }: StoragePanelProps): React.JSX.Eleme
       {storageRepairActive && storageCheck ? (
         <SettingsSection
           title="Application storage"
-          description="Open Science needs write access to its private configuration directory."
+          description="Research Agent needs write access to its private configuration directory."
           aria-label="Application storage"
         >
           {/* Keep the failure visibly actionable, then remove the warning treatment as soon as a
@@ -309,7 +309,7 @@ const StoragePanel = ({ onContinueToAgent }: StoragePanelProps): React.JSX.Eleme
 
       <SettingsSection
         title="Data location"
-        description="Where Open Science stores your projects, artifacts, and other app data on this device."
+        description="Where Research Agent stores your projects, artifacts, and other app data on this device."
         aria-label="Data location"
         separated={storageRepairActive}
         action={
@@ -386,7 +386,7 @@ const StoragePanel = ({ onContinueToAgent }: StoragePanelProps): React.JSX.Eleme
 
                 {kind === 'adopt' ? (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    This folder already contains Open Science data. It will be{' '}
+                    This folder already contains Research Agent data. It will be{' '}
                     <strong className="font-semibold text-foreground">
                       used as-is (not merged)
                     </strong>
@@ -553,7 +553,7 @@ const StoragePanel = ({ onContinueToAgent }: StoragePanelProps): React.JSX.Eleme
               Change data location?
             </AlertDialog.Title>
             <AlertDialog.Description className={dialogDescriptionClassName}>
-              You can move Open Science&apos;s data to another folder on this device.
+              You can move Research Agent&apos;s data to another folder on this device.
             </AlertDialog.Description>
             <div className="mt-3">
               <DataRootWarning />
@@ -587,7 +587,7 @@ const StoragePanel = ({ onContinueToAgent }: StoragePanelProps): React.JSX.Eleme
             <AlertDialog.Title className={dialogTitleClassName}>Use this folder?</AlertDialog.Title>
             <pre className={cn('mt-3', PATH_PILL)}>{inspection?.dataRoot ?? trimmedNewPath}</pre>
             <AlertDialog.Description className={cn(dialogDescriptionClassName, 'mt-3')}>
-              Open Science will restart and use this folder as-is —{' '}
+              Research Agent will restart and use this folder as-is —{' '}
               <strong className="font-semibold text-text-000">
                 its contents are not merged with your current data
               </strong>

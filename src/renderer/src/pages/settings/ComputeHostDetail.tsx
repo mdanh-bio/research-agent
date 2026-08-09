@@ -1,4 +1,14 @@
-import { AlertTriangle, ChevronDown, ChevronUp, Cpu, HardDrive, MemoryStick, Pin, RefreshCw, Zap } from 'lucide-react'
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Cpu,
+  HardDrive,
+  MemoryStick,
+  Pin,
+  RefreshCw,
+  Zap
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { ComputeHost } from '../../../../shared/compute'
@@ -377,7 +387,8 @@ export function ComputeHostDetail({
           <div className="min-w-0">
             <h4 className="text-sm font-medium text-foreground">Details</h4>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Free-form notes about this provider. Open Science reads and adds to them as it learns.
+              Free-form notes about this provider. Research Agent reads and adds to them as it
+              learns.
             </p>
           </div>
           {!isEditingDetails ? (

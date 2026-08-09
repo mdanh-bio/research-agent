@@ -358,7 +358,7 @@ const harvestJobUnchecked = async (job: ComputeJob, deps: HarvestDeps): Promise<
     return
   }
 
-  const remoteWorkdir = job.remote_workdir ?? `~/.openscience/jobs/${job.job_id}`
+  const remoteWorkdir = job.remote_workdir ?? `~/.research-agent/jobs/${job.job_id}`
 
   // ── 3. Enumerate remote files ───────────────────────────────────────────────
   let remoteFiles: FileEntry[]
@@ -393,9 +393,19 @@ const harvestJobUnchecked = async (job: ComputeJob, deps: HarvestDeps): Promise<
   const stagedInputs = new Set<string>()
   if (job.input_manifest) {
     try {
-      const manifest = JSON.parse(job.input_manifest) as Array<{ dest?: string }>
-      for (const entry of manifest) {
-        if (entry.dest) stagedInputs.add(entry.dest)
+      const manifest: unknown = JSON.parse(job.input_manifest)
+      const entries = Array.isArray(manifest)
+        ? manifest
+        : typeof manifest === 'object' && manifest !== null && 'inputs' in manifest
+          ? (manifest as { inputs?: unknown }).inputs
+          : undefined
+      if (Array.isArray(entries)) {
+        for (const entry of entries) {
+          if (typeof entry !== 'object' || entry === null) continue
+          const input = entry as { dest?: unknown; dstFilename?: unknown }
+          const destination = input.dstFilename ?? input.dest
+          if (typeof destination === 'string' && destination) stagedInputs.add(destination)
+        }
       }
     } catch {
       // Ignore parse errors.

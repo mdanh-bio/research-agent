@@ -86,7 +86,7 @@ export const specialistExportFileName = (
     .slice(0, 80)
     .replace(/-+$/g, '')
   const identity = slug || fallbackId.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  return `open-science-specialist-${identity || 'export'}-v${version}.zip`
+  return `research-agent-specialist-${identity || 'export'}-v${version}.zip`
 }
 
 const normalizeExportedSkillDocument = (

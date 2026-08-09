@@ -1,0 +1,61 @@
+schemaVersion: 1
+reviewedAt: '2026-08-10'
+sources:
+  - id: aipoch-open-science
+    repository: https://github.com/aipoch/open-science
+    revision: 218d77e17a91c13f4797e943a723cf0f8e681387
+    release: v0.12.1
+    tagObject: 9d1fe279281e5423080a68d7e26c7344ca4d84cf
+    license: Apache-2.0
+    role: application-base
+    importStatus: full-history-base
+    notice: Root LICENSE is preserved; Research Agent modifications are described in THIRD_PARTY_NOTICES.md.
+
+  - id: ai4s-open-science
+    repository: https://github.com/ai4s-research/open-science
+    revision: a68f2032df5f4b73328e766181ad5cdeca592deb
+    license: MIT
+    role: behavior-reference
+    importStatus: reference-only
+    notice: No source copied at Milestone 0; preserve the MIT notice before any later port.
+
+  - id: synthetic-sciences-openscience
+    repository: https://github.com/synthetic-sciences/openscience
+    revision: edd585468549a0921be5b3b19cb6284d65d6b5d9
+    license: Apache-2.0
+    role: biology-asset-reference
+    importStatus: reference-only
+    notice: No skills or connectors imported at Milestone 0; each future asset requires an individual record.
+
+  - id: openai-codex-design-snapshot
+    repository: https://github.com/openai/codex
+    revision: 646f7c0a91b8e327d263335da68ae8ef212895ce
+    license: Apache-2.0
+    role: app-server-interface-reference
+    importStatus: reference-only
+    notice: Research Agent invokes a separately installed or pinned runtime; it does not fork Codex source.
+
+  - id: openai-codex-runtime
+    repository: https://github.com/openai/codex
+    revision: be6e8eac029b183056b7e4402879f15d2c85f61b
+    release: rust-v0.147.0
+    tagObject: 3ed6f04f6bf8b7c46299d1cb1ff99c74ce21a51d
+    license: Apache-2.0
+    role: target-runtime
+    importStatus: external-runtime-pin
+
+  - id: opencode-runtime
+    repository: https://github.com/anomalyco/opencode
+    revision: 0dd6950d1b06958fbcdcadf0ad56258257ab7fdb
+    release: v1.18.12
+    license: MIT
+    role: target-runtime
+    importStatus: external-runtime-pin
+
+  - id: claude-science
+    product: Claude Science
+    version: 0.1.27
+    role: clean-room-behavior-reference
+    importStatus: no-code-no-assets
+    license: proprietary
+    notice: Copy no code, prompts, assets, credentials, authentication behavior, or application data.

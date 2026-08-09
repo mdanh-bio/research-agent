@@ -12,8 +12,7 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Some public APIs (e.g. AlphaFold EBI) reject requests without a User-Agent; send a stable one.
-const USER_AGENT =
-  'Mozilla/5.0 (compatible; OpenScience/1.0; +https://github.com/aipoch/open-science)'
+const USER_AGENT = 'Mozilla/5.0 (compatible; ResearchAgent/1.0)'
 
 // Builds the NCBI E-utilities etiquette query suffix; empty when unset (calls still work).
 export function ncbiEtiquette(credentials: ConnectorCredentials): string {

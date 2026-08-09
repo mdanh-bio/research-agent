@@ -53,7 +53,7 @@ const EnvironmentStep = ({ onContinue }: EnvironmentStepProps): React.JSX.Elemen
           </Button>
         </CardAction>
         <CardDescription className="text-xs leading-5">
-          Open Science confirms its core requirements before your first research session.
+          Research Agent confirms its core requirements before your first research session.
         </CardDescription>
       </CardHeader>
       <Separator className="bg-border-200" />

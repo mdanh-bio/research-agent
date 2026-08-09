@@ -163,7 +163,7 @@ const SkillsPanel = ({
     <div className="p-5">
       <SettingsSection
         title="Conversation imports"
-        description="Choose what conversations can import into Open Science."
+        description="Choose what conversations can import into Research Agent."
         aria-label="Conversation imports"
         className="mb-4 border-b border-border pb-4"
         contentClassName="mt-1"

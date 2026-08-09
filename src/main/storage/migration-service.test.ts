@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 // classifyDataRoot now derives the target via storage-root's dataRootForParent, so migration-service
-// transitively needs the electron app stub too (packaged: folder name 'OpenScience').
+// transitively needs the electron app stub too (packaged: folder name 'ResearchAgent').
 vi.mock('electron', () => ({
   app: { getPath: () => '/home/user', isPackaged: true }
 }))
@@ -34,7 +34,7 @@ import { withDataRootWrite } from './migration-state'
 import { operationJournalPath, RuntimeOperationJournal } from '../notebook/operation-journal'
 import type { Logger } from '../logger'
 
-// Writes a verified staging marker for `<parent>/OpenScience`, as a completed copy phase would have.
+// Writes a verified staging marker for `<parent>/ResearchAgent`, as a completed copy phase would have.
 const seedVerifiedMarker = async (
   parent: string,
   source: string,
@@ -57,7 +57,7 @@ const seedVerifiedMarker = async (
 }
 
 // Data folder name mirrors dataFolderName() for a packaged build (see the electron mock above).
-const dataRootFor = (parent: string): string => join(parent, 'OpenScience')
+const dataRootFor = (parent: string): string => join(parent, 'ResearchAgent')
 
 let currentParent: string
 let currentDataRoot: string
@@ -87,7 +87,7 @@ describe('classifyDataRoot', () => {
 
   it('treats picking the current data folder itself as "same", not a doubled nested path', async () => {
     // currentDataRoot's basename is already the data folder name, so it is used as-is (no second
-    // OpenScience appended) — the fix for the "<root>/OpenScience/OpenScience" not-found bug.
+    // ResearchAgent appended) — the fix for the "<root>/ResearchAgent/ResearchAgent" not-found bug.
     const result = await classifyDataRoot(currentDataRoot, currentDataRoot)
 
     expect(result).toEqual({
@@ -96,8 +96,8 @@ describe('classifyDataRoot', () => {
     })
   })
 
-  it('classifies a non-OpenScience subfolder of the current data root as invalid (inside)', async () => {
-    // A picked folder NOT named OpenScience gets the name appended, landing inside the current root.
+  it('classifies a non-ResearchAgent subfolder of the current data root as invalid (inside)', async () => {
+    // A picked folder NOT named ResearchAgent gets the name appended, landing inside the current root.
     const result = await classifyDataRoot(join(currentDataRoot, 'sub'), currentDataRoot)
 
     expect(result).toEqual({
@@ -106,9 +106,9 @@ describe('classifyDataRoot', () => {
     })
   })
 
-  it('adopts the picked OpenScience folder itself as-is, without appending a second folder', async () => {
-    // User navigates INTO and selects the OpenScience folder (which already holds data). It must be
-    // adopted directly, not derive <picked>/OpenScience (doubled, empty, not-found).
+  it('adopts the picked ResearchAgent folder itself as-is, without appending a second folder', async () => {
+    // User navigates INTO and selects the ResearchAgent folder (which already holds data). It must be
+    // adopted directly, not derive <picked>/ResearchAgent (doubled, empty, not-found).
     const picked = dataRootFor(emptyParent)
     await mkdir(join(picked, 'artifacts'), { recursive: true })
 
@@ -295,13 +295,13 @@ describe('classifyDataRoot', () => {
     expect(result.error).toMatch(/can't write/i)
   })
 
-  it('classifies a parent with no OpenScience subdir as move', async () => {
+  it('classifies a parent with no ResearchAgent subdir as move', async () => {
     const result = await classifyDataRoot(emptyParent, currentDataRoot)
 
     expect(result).toEqual({ kind: 'move' })
   })
 
-  it('classifies an OpenScience folder containing a known data subdir as adopt', async () => {
+  it('classifies an ResearchAgent folder containing a known data subdir as adopt', async () => {
     await mkdir(join(dataRootFor(emptyParent), 'artifacts'), { recursive: true })
 
     const result = await classifyDataRoot(emptyParent, currentDataRoot)
@@ -318,7 +318,7 @@ describe('classifyDataRoot', () => {
     expect(result).toEqual({ kind: 'adopt' })
   })
 
-  it('classifies an EMPTY OpenScience folder as move (populate it), not adopt', async () => {
+  it('classifies an EMPTY ResearchAgent folder as move (populate it), not adopt', async () => {
     await mkdir(dataRootFor(emptyParent))
 
     const result = await classifyDataRoot(emptyParent, currentDataRoot)
@@ -326,18 +326,18 @@ describe('classifyDataRoot', () => {
     expect(result).toEqual({ kind: 'move' })
   })
 
-  it('classifies a non-empty OpenScience folder with none of our subdirs as invalid (foreign)', async () => {
+  it('classifies a non-empty ResearchAgent folder with none of our subdirs as invalid (foreign)', async () => {
     await mkdir(join(dataRootFor(emptyParent), 'someone-elses-stuff'), { recursive: true })
 
     const result = await classifyDataRoot(emptyParent, currentDataRoot)
 
     expect(result).toEqual({
       kind: 'invalid',
-      error: 'A different folder named OpenScience already exists here. Choose another location.'
+      error: 'A different folder named ResearchAgent already exists here. Choose another location.'
     })
   })
 
-  it('classifies an OpenScience folder holding only runtime/ as move (runtime is not user data)', async () => {
+  it('classifies an ResearchAgent folder holding only runtime/ as move (runtime is not user data)', async () => {
     // A leftover runtime/ from a prior move (runtime is excluded from moves) must not look adoptable.
     await mkdir(join(dataRootFor(emptyParent), 'runtime'), { recursive: true })
 
@@ -366,7 +366,7 @@ describe('classifyDataRoot', () => {
 
     expect(result).toEqual({
       kind: 'invalid',
-      error: 'A different folder named OpenScience already exists here. Choose another location.'
+      error: 'A different folder named ResearchAgent already exists here. Choose another location.'
     })
   })
   it('rejects a marker-bearing staging dir as invalid, even when it already holds data', async () => {
@@ -405,13 +405,13 @@ describe('validateNewDataRoot', () => {
     expect(result).toEqual({ ok: false, error: 'The selected folder does not exist.' })
   })
 
-  it('accepts a parent with no OpenScience subdir yet (move)', async () => {
+  it('accepts a parent with no ResearchAgent subdir yet (move)', async () => {
     const result = await validateNewDataRoot(emptyParent, currentDataRoot)
 
     expect(result).toEqual({ ok: true })
   })
 
-  it('accepts an EMPTY OpenScience folder as move', async () => {
+  it('accepts an EMPTY ResearchAgent folder as move', async () => {
     await mkdir(dataRootFor(emptyParent))
 
     const result = await validateNewDataRoot(emptyParent, currentDataRoot)
@@ -419,14 +419,14 @@ describe('validateNewDataRoot', () => {
     expect(result).toEqual({ ok: true })
   })
 
-  it('is ok only for move - an OpenScience folder that already holds our data (adopt) is rejected', async () => {
+  it('is ok only for move - an ResearchAgent folder that already holds our data (adopt) is rejected', async () => {
     await mkdir(join(dataRootFor(emptyParent), 'artifacts'), { recursive: true })
 
     const result = await validateNewDataRoot(emptyParent, currentDataRoot)
 
     expect(result).toEqual({
       ok: false,
-      error: 'The selected folder already contains Open Science data. Pick an empty folder.'
+      error: 'The selected folder already contains Research Agent data. Pick an empty folder.'
     })
   })
 })
@@ -1269,7 +1269,7 @@ describe('commitDataRootSwitch (commit phase)', () => {
   })
 
   it('refuses to commit a marker staged against a different source (wrong current root)', async () => {
-    await seedVerifiedMarker(emptyParent, '/some/other/OpenScience')
+    await seedVerifiedMarker(emptyParent, '/some/other/ResearchAgent')
     const deps = fakeDeps()
     const deleteSources = vi.fn(async (): Promise<DeleteResult> => ({ deleted: [], failed: [] }))
 
@@ -1288,7 +1288,7 @@ describe('commitDataRootSwitch (commit phase)', () => {
 
   it('refuses to commit a marker whose recorded target differs from the derived one', async () => {
     const target = await seedVerifiedMarker(emptyParent, currentDataRoot, {
-      target: '/elsewhere/OpenScience'
+      target: '/elsewhere/ResearchAgent'
     })
     const deps = fakeDeps()
     const deleteSources = vi.fn(async (): Promise<DeleteResult> => ({ deleted: [], failed: [] }))
@@ -1616,7 +1616,7 @@ describe('discardStagedCopy', () => {
   })
 
   it('refuses when the marker was staged against a different source', async () => {
-    const target = await seedVerifiedMarker(emptyParent, '/some/other/OpenScience')
+    const target = await seedVerifiedMarker(emptyParent, '/some/other/ResearchAgent')
 
     const result = await discardStagedCopy(
       { currentDataRoot, expectedToken: 'tok-test' },

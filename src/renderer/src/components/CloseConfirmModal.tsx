@@ -61,7 +61,7 @@ export const CloseConfirmModal = ({
 
   const isQuitVariant = dialogRequest.variant === 'quit'
   const hasSessions = dialogRequest.sessions.length > 0
-  const title = isQuitVariant ? 'Quit Open Science?' : 'Minimize or quit?'
+  const title = isQuitVariant ? 'Quit Research Agent?' : 'Minimize or quit?'
   const description = isQuitVariant
     ? 'Work is still running and will be interrupted if you quit.'
     : 'This app can keep running in the tray, or you can quit.'

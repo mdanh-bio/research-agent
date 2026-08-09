@@ -204,14 +204,14 @@ const runEnvironmentCheck = async ({
         id: 'storage',
         label: 'App storage permission',
         status: 'passed',
-        summary: 'Open Science can write to its private data folder.',
+        summary: 'Research Agent can write to its private data folder.',
         detail: storageRoot
       }))
       .catch<EnvironmentCheckItem>((error) => ({
         id: 'storage',
         label: 'App storage permission',
         status: 'failed',
-        summary: 'Open Science cannot write to its private data folder.',
+        summary: 'Research Agent cannot write to its private data folder.',
         detail:
           error instanceof Error
             ? `${storageRoot} — ${error.message}`

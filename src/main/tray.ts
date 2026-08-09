@@ -136,7 +136,7 @@ const createAppTray = (opts: {
           ]
     )
 
-    tray.setToolTip(headlessWeb ? 'Open Science (Web)' : 'Open Science')
+    tray.setToolTip(headlessWeb ? 'Research Agent (Web)' : 'Research Agent')
 
     const primaryAction = (): void => {
       if (headlessWeb) void opts.onOpenWeb!()

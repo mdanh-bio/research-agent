@@ -168,7 +168,7 @@ describe('SpecialistsPanel', () => {
     specialistId: 'rna-reviewer',
     name: 'RNA Reviewer',
     version: '0.1.0',
-    fileName: 'open-science-specialist-rna-reviewer-v0.1.0.zip',
+    fileName: 'research-agent-specialist-rna-reviewer-v0.1.0.zip',
     expectedRevision: 1,
     canExport: true,
     connectorIds: ['reference-library'],
@@ -250,7 +250,7 @@ describe('SpecialistsPanel', () => {
     })
     expect(document.body.textContent).toContain('Export complete')
     expect(document.body.textContent).toContain(
-      'open-science-specialist-rna-reviewer-v0.1.0.zip was saved'
+      'research-agent-specialist-rna-reviewer-v0.1.0.zip was saved'
     )
   })
 
@@ -368,7 +368,7 @@ describe('SpecialistsPanel', () => {
       specialistId: 'rna-reviewer',
       name: 'RNA Reviewer',
       version: '0.1.0',
-      fileName: 'open-science-specialist-rna-reviewer-v0.1.0.zip',
+      fileName: 'research-agent-specialist-rna-reviewer-v0.1.0.zip',
       expectedRevision: 1,
       canExport: true,
       connectorIds: ['reference-library'],
@@ -515,7 +515,7 @@ describe('SpecialistsPanel', () => {
     await act(async () => finishSave?.({ saved: true }))
     expect(document.body.textContent).toContain('Template saved')
     expect(document.body.textContent).toContain(
-      'openscience-specialist-template.zip is ready for contributor editing.'
+      'research-agent-specialist-template.zip is ready for contributor editing.'
     )
   })
 

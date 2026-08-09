@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright'
 import { terminateProcessTree } from '../../src/main/process-tree'
+import { readResearchAgentEnvironment } from '../../src/shared/environment-overrides'
 import { RendererFailureGate } from './renderer-failure-gate'
 
 const APP_ROOT = resolve(process.cwd())
@@ -12,12 +13,19 @@ const FAKE_AGENT_PATH = resolve(APP_ROOT, 'e2e', 'fixtures', 'fake-opencode.mjs'
 const FAKE_REMOTEIT_PATH = resolve(APP_ROOT, 'e2e', 'fixtures', 'fake-remoteit.cjs')
 const FAKE_PROVIDER_NAME = 'Electron E2E provider'
 
+const e2eExecutable = (environment: NodeJS.ProcessEnv): string | undefined =>
+  readResearchAgentEnvironment(
+    environment,
+    'RESEARCH_AGENT_E2E_EXECUTABLE',
+    'OPEN_SCIENCE_E2E_EXECUTABLE'
+  )
+
 const electronLaunchTarget = (
   userDataRoot: string,
   environment: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform
 ): { args: string[]; executablePath?: string } => {
-  const executablePath = environment.OPEN_SCIENCE_E2E_EXECUTABLE
+  const executablePath = e2eExecutable(environment)
   return {
     args: [
       `--user-data-dir=${userDataRoot}`,
@@ -113,9 +121,9 @@ const launchEnvironment = (
     if (value !== undefined && key !== 'ELECTRON_RENDERER_URL') environment[key] = value
   }
 
-  environment.OPEN_SCIENCE_STORAGE_ROOT = storageRoot
-  if (environment.OPEN_SCIENCE_E2E_EXECUTABLE) {
-    environment.OPEN_SCIENCE_E2E_STORAGE_ROOT = storageRoot
+  environment.RESEARCH_AGENT_STORAGE_ROOT = storageRoot
+  if (e2eExecutable(environment)) {
+    environment.RESEARCH_AGENT_E2E_STORAGE_ROOT = storageRoot
   }
   if (fakeRemoteItRoot) {
     environment.OPEN_SCIENCE_FAKE_REMOTEIT_STATE = join(storageRoot, 'fake-remoteit-state.json')
@@ -330,7 +338,7 @@ class ElectronAppHarness implements ElectronApp {
   async mainWindowState(): Promise<{ minimized: boolean; visible: boolean }> {
     return this.runningApplication.evaluate(({ BrowserWindow }) => {
       const mainWindow = BrowserWindow.getAllWindows()[0]
-      if (!mainWindow) throw new Error('Open Science main window was not found.')
+      if (!mainWindow) throw new Error('Research Agent main window was not found.')
 
       return { minimized: mainWindow.isMinimized(), visible: mainWindow.isVisible() }
     })
@@ -346,7 +354,7 @@ class ElectronAppHarness implements ElectronApp {
         executable,
         [
           `--user-data-dir=${this.roots.userDataRoot}`,
-          ...(process.env.OPEN_SCIENCE_E2E_EXECUTABLE ? [] : [appPath])
+          ...(e2eExecutable(process.env) ? [] : [appPath])
         ],
         {
           cwd: APP_ROOT,
@@ -372,7 +380,7 @@ class ElectronAppHarness implements ElectronApp {
     await this.runningApplication.evaluate(
       ({ BrowserWindow }, input) => {
         const mainWindow = BrowserWindow.getAllWindows()[0]
-        if (!mainWindow) throw new Error('Open Science main window was not found.')
+        if (!mainWindow) throw new Error('Research Agent main window was not found.')
 
         mainWindow.webContents.focus()
         mainWindow.webContents.sendInputEvent({
@@ -393,7 +401,7 @@ class ElectronAppHarness implements ElectronApp {
   async requestMainWindowClose(): Promise<void> {
     await this.runningApplication.evaluate(({ BrowserWindow }) => {
       const mainWindow = BrowserWindow.getAllWindows()[0]
-      if (!mainWindow) throw new Error('Open Science main window was not found.')
+      if (!mainWindow) throw new Error('Research Agent main window was not found.')
       mainWindow.close()
     })
   }

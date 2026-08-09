@@ -60,12 +60,18 @@ const encodeRun = async (
   id: string,
   args: Record<string, unknown>,
   responses: Response[]
-): Promise<{ out: unknown; urls: string[] }> => {
+): Promise<{ out: unknown; urls: string[]; userAgents: Array<string | undefined> }> => {
   const fetchImpl = vi.fn()
   for (const r of responses) fetchImpl.mockResolvedValueOnce(r)
   vi.stubGlobal('fetch', fetchImpl)
   const out = await tool(id).run!(ENCODE_CTX, args)
-  return { out, urls: fetchImpl.mock.calls.map((c) => c[0] as string) }
+  return {
+    out,
+    urls: fetchImpl.mock.calls.map((c) => c[0] as string),
+    userAgents: fetchImpl.mock.calls.map(
+      (c) => ((c[1] as RequestInit).headers as Record<string, string>)['user-agent']
+    )
+  }
 }
 
 afterEach(() => {
@@ -119,7 +125,7 @@ describe('regulation / encode search', () => {
 
   it('walks /report/ across pages, count-verifies, and caps rows while keeping all accessions', async () => {
     // total=3, page size collapses to two mocked pages; max_rows=2 truncates the row list only.
-    const { out, urls } = await encodeRun(
+    const { out, urls, userAgents } = await encodeRun(
       'encode_search_experiments',
       { target: 'CTCF', assay_title: 'TF ChIP-seq', max_rows: 2 },
       [
@@ -133,6 +139,7 @@ describe('regulation / encode search', () => {
     expect(urls[0]).toContain('target.label=CTCF')
     expect(urls[0]).toContain(encodeURIComponent('assay_title') + '=TF+ChIP-seq')
     expect(urls[0]).toContain('from=0')
+    expect(userAgents).toEqual(['ResearchAgent/1.0', 'ResearchAgent/1.0'])
     // second page requested at offset = rows collected so far (2).
     expect(urls[1]).toContain('from=2')
     const o = out as Record<string, unknown>

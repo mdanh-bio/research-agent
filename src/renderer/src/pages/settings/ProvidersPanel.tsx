@@ -279,11 +279,11 @@ const ProvidersPanel = ({
     try {
       const result = await logoutSharedClaude()
       if (!result.ok) {
-        setProviderTestError(result.message ?? 'Could not disconnect Claude from Open Science.')
+        setProviderTestError(result.message ?? 'Could not disconnect Claude from Research Agent.')
       }
     } catch (error) {
       setProviderTestError(
-        error instanceof Error ? error.message : 'Could not disconnect Claude from Open Science.'
+        error instanceof Error ? error.message : 'Could not disconnect Claude from Research Agent.'
       )
     }
   }

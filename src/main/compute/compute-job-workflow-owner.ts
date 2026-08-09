@@ -11,6 +11,17 @@ import type {
 } from '../../shared/compute'
 import { getNotebookSessionRoot } from '../notebook/repository'
 import type { ComputeApprovalBroker } from './compute-approval-broker'
+import {
+  assertApprovedHostAndTarget,
+  bindInputContentIdentities,
+  buildApprovedDispatchBinding,
+  buildDispatchApprovalSummary,
+  directSshHostProof,
+  revalidateInputContentIdentities,
+  resolveAuthorizedLocalInputPath
+} from './compute-dispatch-binding'
+import type { ApprovedDispatchBinding, ApprovedUploadInputEntry } from './compute-dispatch-binding'
+import { buildComputeJobApprovalSummary, computeJobSpecFromSubmission } from './compute-job-spec'
 import type { ConcurrencyManager, SessionStatus } from './concurrency-manager'
 import { computeRemoteWorkdir, dispatchJob, hashCommand } from './job-dispatcher'
 import type { StagedInputEntry } from './job-dispatcher'
@@ -19,7 +30,8 @@ import { getJobHarvestDir } from './harvest-engine'
 import type { ComputeHostRepository } from './repository'
 import type { ScpRunner } from './scp-runner'
 import { GLOB_CHARS, SHELL_UNSAFE_CHARS } from './scp-runner'
-import type { SshRunner } from './ssh-runner'
+import type { ResolvedSshTarget, SshRunner } from './ssh-runner'
+import { resolveSshTarget } from './ssh-runner'
 import { workspaceRelativePath } from './workspace-path'
 
 const COMMAND_PREVIEW_MAX_LEN = 120
@@ -45,6 +57,11 @@ const assertBareName = (name: string, label: string): void => {
       `dst_filename must be a bare filename with no path separators (got "${name}" for ${label})`
     )
   }
+  if (GLOB_CHARS.test(name) || SHELL_UNSAFE_CHARS.test(name)) {
+    throw new Error(
+      `dst_filename must not contain glob or shell-unsafe characters (got ${JSON.stringify(name)} for ${label})`
+    )
+  }
 }
 
 const resolveWorkspacePath = (workspaceCwd: string, srcPath: string): string => {
@@ -59,7 +76,8 @@ const resolveWorkspacePath = (workspaceCwd: string, srcPath: string): string => 
 export const resolveInputs = async (
   rawInputs: RawInputSpec[],
   workspaceCwd: string | undefined,
-  artifactResolver: ArtifactResolver | undefined
+  artifactResolver: ArtifactResolver | undefined,
+  artifactAuthorizedRoot?: string
 ): Promise<{ entries: StagedInputEntry[]; inputsSummary: string }> => {
   const entries: StagedInputEntry[] = []
   const summaryParts: string[] = []
@@ -96,14 +114,19 @@ export const resolveInputs = async (
       if (!artifactResolver) {
         throw new Error(`Cannot resolve artifact "${src}": ArtifactResolver is not available`)
       }
-      const localPath = await artifactResolver.resolveArtifactPath(src)
-      entries.push({ kind: 'upload', localPath, dstFilename, label: src })
+      if (!artifactAuthorizedRoot) {
+        throw new Error(`Cannot resolve artifact "${src}": authorized data root is not available`)
+      }
+      const sourcePath = await artifactResolver.resolveArtifactPath(src)
+      const authorized = await resolveAuthorizedLocalInputPath(sourcePath, artifactAuthorizedRoot)
+      entries.push({ kind: 'upload', ...authorized, dstFilename, label: src })
     } else {
       if (!workspaceCwd) {
         throw new Error(`Cannot resolve workspace path "${src}": workspace_cwd is not available`)
       }
-      const localPath = resolveWorkspacePath(workspaceCwd, src)
-      entries.push({ kind: 'upload', localPath, dstFilename, label: src })
+      const sourcePath = resolveWorkspacePath(workspaceCwd, src)
+      const authorized = await resolveAuthorizedLocalInputPath(sourcePath, workspaceCwd)
+      entries.push({ kind: 'upload', ...authorized, dstFilename, label: src })
     }
     summaryParts.push(dstFilename)
   }
@@ -166,6 +189,29 @@ export class ComputeJobWorkflowOwner {
       throw new Error(`No compute host found with provider id "${providerId}".`)
     }
 
+    // The inherited dispatcher launches command.sh directly with nohup. It must never be used for a
+    // scheduler/login-node host: approving partition/GPU resources and then bypassing Slurm would be
+    // both misleading and unsafe. Fail before approval, persistence, staging, or SSH until the
+    // SchedulerDriver production adapter owns this path end to end.
+    if (!directSshHostProof(host)) {
+      const message =
+        host.shape === 'scheduler_cluster'
+          ? 'Slurm submission is not connected to the production dispatcher yet. No remote command was run.'
+          : host.shape === 'bridge_runner'
+            ? 'This compute-host shape is not connected to a production job driver. No remote command was run.'
+            : 'This host has no successful probe proving that it is a direct SSH host without a scheduler. No remote command was run.'
+      const error = new Error(message) as Error & { computeCallError: ComputeCallError }
+      error.computeCallError = {
+        error_code:
+          host.shape === 'scheduler_cluster' || host.shape === 'bridge_runner'
+            ? 'scheduler_not_ready'
+            : 'host_unclassified',
+        message,
+        retry_after_user_action: true
+      }
+      throw error
+    }
+
     const rawTimeout = options.timeoutSeconds
     if (rawTimeout !== undefined) {
       if (!Number.isFinite(rawTimeout)) {
@@ -206,18 +252,84 @@ export class ComputeJobWorkflowOwner {
 
     let stagedEntries: StagedInputEntry[] = []
     let inputsSummary = ''
-    if (options.inputs && options.inputs.length > 0) {
-      const resolved = await resolveInputs(
-        options.inputs,
-        options.workspaceCwd,
-        this.artifactResolver
+    let approvedInputs: ApprovedUploadInputEntry[]
+    try {
+      if (options.inputs && options.inputs.length > 0) {
+        const resolved = await resolveInputs(
+          options.inputs,
+          options.workspaceCwd,
+          this.artifactResolver,
+          this.storageRoot
+        )
+        stagedEntries = resolved.entries
+        inputsSummary = resolved.inputsSummary
+      }
+      approvedInputs = await bindInputContentIdentities(stagedEntries)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const error = new Error(message) as Error & { computeCallError: ComputeCallError }
+      error.computeCallError = {
+        error_code: 'input_identity_unavailable',
+        message,
+        retry_after_user_action: true
+      }
+      throw error
+    }
+    if (approvedInputs.length > 0) {
+      inputsSummary = approvedInputs
+        .map(
+          (entry) =>
+            `${entry.dstFilename} (${entry.contentIdentity.sizeBytes} bytes; sha256 ${entry.contentIdentity.sha256})`
+        )
+        .join(', ')
+    }
+
+    let approvedSshTarget: ResolvedSshTarget
+    try {
+      approvedSshTarget = await resolveSshTarget(host.sshAlias, host.sshOverrides)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const error = new Error(message) as Error & { computeCallError: ComputeCallError }
+      error.computeCallError = {
+        error_code: 'host_unreachable',
+        message,
+        retry_after_user_action: true
+      }
+      throw error
+    }
+    let dispatchBinding: ApprovedDispatchBinding
+    try {
+      dispatchBinding = buildApprovedDispatchBinding(
+        host,
+        approvedSshTarget,
+        approvedInputs,
+        hashCommand(command)
       )
-      stagedEntries = resolved.entries
-      inputsSummary = resolved.inputsSummary
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const error = new Error(message) as Error & { computeCallError: ComputeCallError }
+      error.computeCallError = {
+        error_code: 'host_unclassified',
+        message,
+        retry_after_user_action: true
+      }
+      throw error
     }
 
     const jobId = randomUUID()
     const remoteWorkdir = computeRemoteWorkdir(host.scratchRoot, jobId)
+    const approvalJobSpec = computeJobSpecFromSubmission({
+      jobId,
+      providerId: host.providerId,
+      host: host.sshAlias,
+      intent,
+      command,
+      remoteWorkdir,
+      timeoutSeconds,
+      resourceRequest: options.resourceRequest,
+      stagedInputs: approvedInputs,
+      outputManifest: options.outputManifest
+    })
     if (this.concurrencyManager) {
       const preview = await this.concurrencyManager.enqueue({
         jobId,
@@ -244,7 +356,11 @@ export class ComputeJobWorkflowOwner {
         command_full: command,
         inputs_summary: inputsSummary || undefined,
         timeout_seconds: timeoutSeconds,
-        remote_workdir: remoteWorkdir
+        remote_workdir: remoteWorkdir,
+        job_summary: buildComputeJobApprovalSummary(approvalJobSpec),
+        dispatch_binding: buildDispatchApprovalSummary(dispatchBinding),
+        execution_mode: 'direct_ssh',
+        single_use: true
       },
       {
         sessionId: context.sessionId,
@@ -266,8 +382,28 @@ export class ComputeJobWorkflowOwner {
       throw error
     }
 
+    // Approval authorizes the exact host proof, resolved endpoint/options, and input bytes shown on
+    // the card. Re-read all three before persistence or background dispatch so a mutation while the
+    // user considered the card fails closed without creating a job row.
+    try {
+      const currentHost = await this.hostRepository.get(providerId)
+      if (!currentHost) throw new Error('The approved compute host no longer exists.')
+      const currentTarget = await resolveSshTarget(currentHost.sshAlias, currentHost.sshOverrides)
+      assertApprovedHostAndTarget(dispatchBinding, currentHost, currentTarget)
+      await revalidateInputContentIdentities(dispatchBinding.inputs)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const error = new Error(message) as Error & { computeCallError: ComputeCallError }
+      error.computeCallError = {
+        error_code: 'approval_stale',
+        message,
+        retry_after_user_action: true
+      }
+      throw error
+    }
+
     const commandHash = hashCommand(command)
-    const inputManifest = stagedEntries.length > 0 ? JSON.stringify(stagedEntries) : undefined
+    const inputManifest = JSON.stringify(dispatchBinding)
     const jobRepository = this.jobRepository
     const createRow = async (initialStatus: 'submitted' | 'queued'): Promise<void> => {
       await jobRepository.create({
