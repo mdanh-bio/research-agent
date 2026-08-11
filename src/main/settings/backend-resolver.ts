@@ -370,17 +370,42 @@ export class AgentBackendResolver {
   async resolveActiveModelChangeTarget(): Promise<AgentModelChangeTarget | undefined> {
     const settings = await this.readSettings()
     const frameworkId = this.resolveConfiguredFrameworkId(settings)
+    return this.resolveModelChangeTargetFromSettings(
+      settings,
+      frameworkId,
+      settings.activeProviderId,
+      { kind: 'configured', requestedModel: settings.activeModel },
+      settings.reasoningEffort ?? DEFAULT_REASONING_EFFORT
+    )
+  }
+
+  async resolveRoutedModelChangeTarget(
+    routedTarget: ModelTarget
+  ): Promise<AgentModelChangeTarget | undefined> {
+    const settings = await this.readSettings()
+    return this.resolveModelChangeTargetFromSettings(
+      settings,
+      routedTarget.backend,
+      routedTarget.providerId,
+      { kind: 'required', model: routedTarget.model },
+      routedTarget.reasoningEffort
+    )
+  }
+
+  private resolveModelChangeTargetFromSettings(
+    settings: StoredSettings,
+    frameworkId: AgentFrameworkId,
+    providerId: string | undefined,
+    modelSelection: RuntimeProviderModelSelection,
+    effortIntent: ReasoningEffort
+  ): AgentModelChangeTarget | undefined {
     const framework = getAgentFramework(frameworkId)
-    const storedProvider = settings.activeProviderId
-      ? settings.providers.find((provider) => provider.id === settings.activeProviderId)
+    const storedProvider = providerId
+      ? settings.providers.find((provider) => provider.id === providerId)
       : undefined
     if (!storedProvider) return undefined
 
-    const target = this.providers.resolveRuntimeTarget(
-      storedProvider,
-      { kind: 'configured', requestedModel: settings.activeModel },
-      framework
-    )
+    const target = this.providers.resolveRuntimeTarget(storedProvider, modelSelection, framework)
     if (!target.frameworkCompatible || (frameworkId === 'codex' && !target.modelBridgeSupported)) {
       return undefined
     }
@@ -418,10 +443,7 @@ export class AgentBackendResolver {
       sessionModelRequired:
         frameworkId === 'codex' && isCodexSubscriptionProvider(target.provider.type),
       supportsImageInput: target.provider.supportsImageInput === true,
-      reasoningEffort: resolvedModelEffort(
-        settings.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
-        target
-      ),
+      reasoningEffort: resolvedModelEffort(effortIntent, target),
       ...(hasClaudeProviderTransport
         ? { anthropicBridgeTargetId: claudeBridgeTargetId(target.providerId, model) }
         : {}),

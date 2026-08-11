@@ -17,6 +17,8 @@ import type {
   AcpSetPermissionProfileRequest,
   AcpStateSnapshot
 } from '../../shared/acp'
+import { toAcpTurnTokenUsage } from '../../shared/acp'
+import type { ModelTarget } from '../../shared/model-routing'
 import type { AcpHandoffFailure } from '../../shared/acp'
 import type { ResolvedReasoningEffort } from '../../shared/reasoning-effort'
 import type { AgentFrameworkId } from '../../shared/settings'
@@ -27,6 +29,9 @@ import type { ApprovedSwitchReadBack, ClaudeCodeReplayInput } from '../agents/cl
 import type { AgentUserChoiceRequest, AgentUserChoiceResult } from '../../shared/elicitation'
 import type { AgentModelChangeTarget } from '../agent-framework'
 import type { ShutdownStepOutcome } from '../lifecycle-shutdown'
+import { RoutedTargetUnavailableError } from '../model-routing/runtime-orchestrator'
+import type { RoutedRunOrchestrator } from '../model-routing/runtime-orchestrator'
+import type { RequestIdentityInput } from '../model-routing/fallback-policy'
 
 const MAX_EVENTS = 500
 const QUIT_PREPARATION_TIMEOUT_MS = 4_000
@@ -36,6 +41,10 @@ const isOwnershipScopedControlEvent = (event: AcpRuntimeEvent): boolean =>
 
 const hasArtifactProvenance = (event: AcpRuntimeEvent): boolean =>
   Boolean(event.runId && event.promptMessageId && event.artifactClaimId)
+
+const isRoutingSideEffectEvent = (event: AcpRuntimeEvent): boolean =>
+  event.kind === 'tool' &&
+  !(event.providerToolName === 'skill' && event.toolCallId?.startsWith('open-science-skill-'))
 
 type RuntimeFactory = (
   callbacks: AcpRuntimeCallbacks,
@@ -57,6 +66,56 @@ type AcpRuntimeCoordinatorTeardownCallbacks = {
 
 type PermissionGrantSnapshotProvider = () => AcpStateSnapshot['permissionGrants']
 
+type RoutedModelChangeTargetResolver = (
+  target: ModelTarget
+) => Promise<AgentModelChangeTarget | undefined>
+
+export const routingRequestIdentity = (request: AcpPromptRequest): RequestIdentityInput => {
+  const attachments = [
+    ...(request.attachments ?? []),
+    ...(request.historyAttachments ?? []),
+    ...(request.resumeFallback?.historyAttachments ?? [])
+  ].map((attachment) => {
+    const checksum = attachment.checksum?.toLowerCase()
+    if (!checksum || !/^[0-9a-f]{64}$/.test(checksum)) {
+      throw new Error(
+        `Transparent routing requires an immutable checksum for attachment ${attachment.name}.`
+      )
+    }
+    return Object.freeze({
+      name: attachment.name,
+      sha256: `sha256:${checksum}`,
+      sizeBytes: attachment.size
+    })
+  })
+  return Object.freeze({
+    body: JSON.stringify({
+      text: request.text,
+      turnIntent: request.turnIntent,
+      planContinuation: request.planContinuation,
+      continuation: request.continuation,
+      provenanceContext: request.provenanceContext,
+      forcedSkillIds: request.forcedSkillIds,
+      referencedArtifacts: request.referencedArtifacts,
+      historyPreamble: request.historyPreamble,
+      historyImages: request.historyImages,
+      resumeFallback: request.resumeFallback
+        ? {
+            historyPreamble: request.resumeFallback.historyPreamble,
+            historyImages: request.resumeFallback.historyImages
+          }
+        : undefined,
+      attachmentGroupSizes: {
+        prompt: request.attachments?.length ?? 0,
+        history: request.historyAttachments?.length ?? 0,
+        resumeFallback: request.resumeFallback?.historyAttachments?.length ?? 0
+      },
+      contextReset: request.contextReset
+    }),
+    ...(attachments.length > 0 ? { attachments: Object.freeze(attachments) } : {})
+  })
+}
+
 type PendingPromptStart = {
   id: string
   runtime: AcpRuntime
@@ -70,6 +129,7 @@ type ActivePromptRequest = {
   attemptId: string
   turnToken?: string
   acceptance?: PromptAcceptance
+  activateRoutedAttempt?: () => Promise<void>
 }
 
 type PromptAcceptance = {
@@ -145,7 +205,9 @@ class AcpRuntimeCoordinator {
     private readonly onDisconnected?: () => void,
     private readonly onSessionUnavailable?: (sessionId: string) => void,
     private readonly teardownCallbacks: AcpRuntimeCoordinatorTeardownCallbacks = {},
-    private readonly permissionGrantSnapshot?: PermissionGrantSnapshotProvider
+    private readonly permissionGrantSnapshot?: PermissionGrantSnapshotProvider,
+    private readonly routedRuns?: RoutedRunOrchestrator,
+    private readonly resolveRoutedModelChangeTarget?: RoutedModelChangeTargetResolver
   ) {
     this.activeRuntime = this.addRuntime()
     this.lastRuntime = this.activeRuntime
@@ -591,9 +653,72 @@ class AcpRuntimeCoordinator {
     acceptance?: PromptAcceptance
   ): ReturnType<AcpRuntime['sendPrompt']> {
     if (this.promptAdmissionClosedForQuit) return this.rejectPromptForQuit()
-    if (!this.promptAdmissionGuard) return this.dispatchPrompt(request, acceptance, 'sendPrompt')
+    if (!this.promptAdmissionGuard) return this.dispatchRoutedPrompt(request, acceptance)
     return this.promptAdmissionGuard(request.sessionId).then(() =>
-      this.dispatchPrompt(request, acceptance, 'sendPrompt')
+      this.dispatchRoutedPrompt(request, acceptance)
+    )
+  }
+
+  private dispatchRoutedPrompt(
+    request: AcpPromptRequest,
+    acceptance?: PromptAcceptance
+  ): ReturnType<AcpRuntime['sendPrompt']> {
+    if (!this.routedRuns) return this.dispatchPrompt(request, acceptance, 'sendPrompt')
+    const taskRequest = this.withPromptProvenance(request)
+    const projectId =
+      taskRequest.planContinuation?.projectId ??
+      this.liveSessionProjectId(taskRequest.sessionId) ??
+      'default'
+    let userPromptDispatched = false
+    return this.routedRuns.execute(
+      {
+        projectId,
+        sessionId: taskRequest.sessionId,
+        promptMessageId: taskRequest.provenanceContext?.promptMessageId,
+        workClass: taskRequest.workClass ?? 'analysis',
+        request: () => routingRequestIdentity(taskRequest)
+      },
+      async (context) => {
+        const providerRequest =
+          context.kind === 'routed' ? structuredClone(taskRequest) : taskRequest
+        if (context.kind === 'routed') {
+          const target = await this.resolveRoutedModelChangeTarget?.(context.target)
+          if (!target) {
+            throw new RoutedTargetUnavailableError(
+              `The routed target ${context.target.id} cannot be applied to this runtime.`
+            )
+          }
+          const runtime =
+            this.findRuntimeForSession(taskRequest.sessionId) ?? this.getActiveRuntime()
+          if (!(await runtime.applyModelChange(target))) {
+            throw new RoutedTargetUnavailableError(
+              `The routed target ${context.target.id} requires a new runtime handoff.`
+            )
+          }
+        }
+        const replay = context.kind === 'routed' && userPromptDispatched
+        const activate =
+          context.kind === 'routed'
+            ? async (): Promise<void> => {
+                await context.activate()
+                userPromptDispatched = true
+              }
+            : undefined
+        const response = await this.dispatchPrompt(
+          replay ? { ...providerRequest, suppressUserMessage: true } : providerRequest,
+          acceptance,
+          'sendPrompt',
+          undefined,
+          !replay,
+          activate
+        )
+        const usage = toAcpTurnTokenUsage(response.usage)
+        return Object.freeze({
+          value: response,
+          cancelled: response.stopReason === 'cancelled',
+          ...(usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {})
+        })
+      }
     )
   }
 
@@ -637,7 +762,8 @@ class AcpRuntimeCoordinator {
     acceptance: PromptAcceptance | undefined,
     operation: 'sendPrompt' | 'sendAppContinuation',
     pinnedRuntime?: AcpRuntime,
-    retainAsLatestUserPrompt = operation === 'sendPrompt'
+    retainAsLatestUserPrompt = operation === 'sendPrompt',
+    activateRoutedAttempt?: () => Promise<void>
   ): ReturnType<AcpRuntime['sendPrompt']> {
     if (this.promptAdmissionClosedForQuit) return this.rejectPromptForQuit()
     const owner = pinnedRuntime ?? this.findRuntimeForSession(request.sessionId)
@@ -659,17 +785,13 @@ class AcpRuntimeCoordinator {
     // Legacy callers may omit graph provenance. Give the originating task one stable identity before
     // its first runtime run so an app-owned continuation reuses that identity instead of receiving a
     // second per-run fallback from AcpRuntime.activateArtifactRun().
-    const taskRequest: AcpPromptRequest = request.provenanceContext
-      ? request
-      : {
-          ...request,
-          provenanceContext: { promptMessageId: `prompt-${randomUUID()}` }
-        }
+    const taskRequest = this.withPromptProvenance(request)
     const activePrompt: ActivePromptRequest = {
       request: taskRequest,
       runtime,
       attemptId: attempt.id,
-      acceptance
+      acceptance,
+      ...(activateRoutedAttempt ? { activateRoutedAttempt } : {})
     }
     this.activePromptRequests.set(request.sessionId, activePrompt)
     if (retainAsLatestUserPrompt) this.latestPromptRequests.set(request.sessionId, taskRequest)
@@ -679,6 +801,15 @@ class AcpRuntimeCoordinator {
         this.activePromptRequests.delete(request.sessionId)
       }
     })
+  }
+
+  private withPromptProvenance(request: AcpPromptRequest): AcpPromptRequest {
+    return request.provenanceContext
+      ? request
+      : {
+          ...request,
+          provenanceContext: { promptMessageId: `prompt-${randomUUID()}` }
+        }
   }
 
   async cancelPrompt(request: AcpCancelPromptRequest): Promise<AcpStateSnapshot> {
@@ -1047,6 +1178,9 @@ class AcpRuntimeCoordinator {
       {
         onStateChanged: (snapshot) => this.handleRuntimeState(runtime, snapshot),
         onEvent: (event) => {
+          if (isRoutingSideEffectEvent(event) && event.sessionId) {
+            this.routedRuns?.markSideEffectsStarted(event.sessionId, event.promptMessageId)
+          }
           if (!this.shouldPublishEvent(runtime, event)) return
           this.callbacks.onEvent?.({ ...event, id: this.eventId(runtime, event.id) })
         },
@@ -1079,6 +1213,11 @@ class AcpRuntimeCoordinator {
           if (activePrompt && activePrompt.attemptId === promptAttemptId) {
             activePrompt.acceptance?.resolve()
           }
+        },
+        onBeforeProviderPromptDispatch: async (sessionId, promptAttemptId) => {
+          const activePrompt = this.activePromptRequests.get(sessionId)
+          if (!activePrompt || activePrompt.attemptId !== promptAttemptId) return
+          await activePrompt.activateRoutedAttempt?.()
         },
         onPromptEnded: (sessionId, turnToken) => {
           const remaining = (this.activePromptCounts.get(sessionId) ?? 1) - 1

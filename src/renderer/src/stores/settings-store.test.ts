@@ -34,6 +34,7 @@ type SettingsApi = {
   onInstallLog: ReturnType<typeof vi.fn>
   setAgentFramework: ReturnType<typeof vi.fn>
   setReasoningEffort: ReturnType<typeof vi.fn>
+  setRouting: ReturnType<typeof vi.fn>
   setNotificationsEnabled: ReturnType<typeof vi.fn>
   setConversationSkillImportEnabled: ReturnType<typeof vi.fn>
   setClosePreference: ReturnType<typeof vi.fn>
@@ -172,6 +173,17 @@ beforeEach(() => {
       .mockImplementation((request: { effort: string }) =>
         Promise.resolve({ ...snapshot([]), reasoningEffort: request.effort })
       ),
+    setRouting: vi.fn().mockImplementation((request: { profile: string }) =>
+      Promise.resolve({
+        ...snapshot([]),
+        routing: {
+          profile: request.profile,
+          telemetryEnabled: false,
+          status: request.profile === 'off' ? 'off' : 'active',
+          effectiveRoutes: {}
+        }
+      })
+    ),
     setNotificationsEnabled: vi
       .fn()
       .mockImplementation((request: { enabled: boolean }) =>
@@ -2048,5 +2060,31 @@ describe('settings store: setDefaultPermissionProfile', () => {
       'Failed to set default permission profile',
       expect.any(Error)
     )
+  })
+})
+
+describe('settings store: setRoutingProfile', () => {
+  it('forwards the explicit profile and reconciles the authoritative route status', async () => {
+    await useSettingsStore.getState().setRoutingProfile('balanced')
+
+    expect(api.setRouting).toHaveBeenCalledWith({ profile: 'balanced' })
+    expect(useSettingsStore.getState().routing).toMatchObject({
+      profile: 'balanced',
+      status: 'active',
+      telemetryEnabled: false
+    })
+  })
+
+  it('keeps the confirmed profile and exposes a visible failure when persistence rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    api.setRouting.mockRejectedValue(new Error('ipc down'))
+
+    await useSettingsStore.getState().setRoutingProfile('research_max')
+
+    expect(useSettingsStore.getState().routing.profile).toBe('off')
+    expect(useSettingsStore.getState().settingsWriteError).toBe(
+      'Could not save the routing profile. Try again.'
+    )
+    expect(consoleError).toHaveBeenCalledWith('Failed to set routing profile', expect.any(Error))
   })
 })

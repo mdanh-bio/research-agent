@@ -2,7 +2,16 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import type { CloseActionPreference } from '../../shared/window-controls'
-import type { RouteDecision } from '../../shared/model-routing'
+import type {
+  ModelRoutePolicy,
+  ModelTarget,
+  RouteDecision,
+  WorkClass
+} from '../../shared/model-routing'
+import {
+  DEFAULT_ROUTING_SETTINGS,
+  type RoutingProfileSelection
+} from '../../shared/routing-settings'
 
 import type {
   ClaudeDetectResult,
@@ -104,6 +113,11 @@ import { createSettingsIdSequence } from './id-sequence'
 import type { SystemProxyEnvironment } from './system-proxy'
 import { type ClaudeIsolatedAuthControllerPort } from './claude-isolated-auth'
 import { type ClaudeSharedAuthControllerPort } from './claude-shared-auth'
+import {
+  createRoutingSettingsView,
+  resolveConfiguredRoute,
+  type ConfiguredRouteResolution
+} from '../model-routing/configured-policy'
 
 // Outcome of uninstalling a managed runtime. `activeBackendAffected` is true only when the removed
 // runtime backed the active framework, so the IPC layer reconnects the agent for that case alone —
@@ -112,6 +126,10 @@ export type UninstallResult = {
   snapshot: SettingsSnapshot
   activeBackendAffected: boolean
 }
+
+export type ActiveAgentBackendRoute =
+  | Readonly<{ kind: 'legacy'; selection: AgentBackendSelection }>
+  | Readonly<{ kind: 'routed'; resolution: ConfiguredRouteResolution }>
 
 // Avoid touching the operating-system credential vault during ordinary startup. On macOS an
 // ad-hoc-signed build can block in Keychain authorization even when a fresh/keyless profile has
@@ -258,9 +276,13 @@ class SettingsService {
   // Returns the renderer-safe (masked) snapshot of settings.
   async getSettingsView(): Promise<SettingsSnapshot> {
     const settings = await this.migrateLegacyKeyRefs(await this.repository.getSettings())
+    return this.toSettingsView(settings)
+  }
+
+  private toSettingsView(settings: StoredSettings): SettingsSnapshot {
     const preferences = toSettingsPreferencesSnapshot(settings)
 
-    return {
+    const snapshot = {
       claude: settings.claude ?? {},
       opencode: { resolvedPath: settings.opencodePath, version: settings.opencodeVersion },
       codex: {
@@ -301,6 +323,14 @@ class SettingsService {
         supportsSkills: framework.supportsSkills,
         supportedApiTypes: [...framework.supportedApiTypes]
       }))
+    } satisfies Omit<SettingsSnapshot, 'routing'>
+
+    return {
+      ...snapshot,
+      routing: createRoutingSettingsView({
+        settings: snapshot,
+        routing: settings.routing ?? DEFAULT_ROUTING_SETTINGS
+      })
     }
   }
 
@@ -398,6 +428,44 @@ class SettingsService {
     await this.preferences.setReasoningEffort(effort)
 
     return this.getSettingsView()
+  }
+
+  async setRoutingProfile(profile: RoutingProfileSelection): Promise<SettingsSnapshot> {
+    const settings = await this.repository.setRoutingProfile(profile)
+    return this.toSettingsView(settings)
+  }
+
+  async resolveConfiguredRoute(
+    workClass: WorkClass,
+    options: Readonly<{
+      projectId?: string
+      sessionOrAgentPin?: ModelRoutePolicy
+      excludedTargetIds?: readonly string[]
+    }> = {}
+  ): Promise<ConfiguredRouteResolution | undefined> {
+    const settings = await this.migrateLegacyKeyRefs(await this.repository.getSettings())
+    const routing = settings.routing ?? DEFAULT_ROUTING_SETTINGS
+    if (routing.profile === 'off') return undefined
+    return resolveConfiguredRoute(
+      { workClass, excludedTargetIds: options.excludedTargetIds },
+      {
+        settings: this.toSettingsView(settings),
+        routing,
+        projectId: options.projectId,
+        sessionOrAgentPin: options.sessionOrAgentPin
+      }
+    )
+  }
+
+  async captureActiveAgentBackendRoute(
+    workClass: WorkClass = 'analysis'
+  ): Promise<ActiveAgentBackendRoute> {
+    const resolution = await this.resolveConfiguredRoute(workClass)
+    if (resolution) return Object.freeze({ kind: 'routed', resolution })
+    return Object.freeze({
+      kind: 'legacy',
+      selection: await this.backendResolver.captureConfiguredSelection()
+    })
   }
 
   // Projects one of the app's five stable user-intent slots through the active model's static effort
@@ -979,14 +1047,19 @@ class SettingsService {
     return this.backendResolver.resolveExplicitTarget(target, context)
   }
 
-  // Deliberately separate from resolveAgentBackend: exposing this bridge does not make routing the
-  // active conversation path. A future orchestrator can opt a newly-owned run into an already
-  // resolved decision without mutating the user's current framework/provider/model settings.
+  // Deliberately separate from resolveAgentBackend: the routed-run orchestrator opts only an
+  // explicitly enabled run into this decision without mutating current provider/model settings.
   async resolveRoutedAgentBackend(
     decision: RouteDecision,
     context: AgentBackendResolutionContext = {}
   ): Promise<ResolvedAgentBackend> {
     return this.backendResolver.resolveRoutedTarget(decision.target, context)
+  }
+
+  async resolveRoutedAgentModelChangeTarget(
+    target: ModelTarget
+  ): Promise<AgentModelChangeTarget | undefined> {
+    return this.backendResolver.resolveRoutedModelChangeTarget(target)
   }
 
   async resolveAgentBackend(

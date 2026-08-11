@@ -42,6 +42,7 @@ type FakeSettingsService = Record<
   | 'uninstallCodex'
   | 'setAgentFramework'
   | 'setReasoningEffort'
+  | 'setRoutingProfile'
   | 'resolveActiveReasoningEffort'
   | 'resolveActiveModelChangeTarget'
   | 'setNotificationsEnabled'
@@ -117,6 +118,9 @@ const createFakeService = (): FakeSettingsService => ({
   setReasoningEffort: vi
     .fn()
     .mockResolvedValue({ claude: {}, providers: [], reasoningEffort: 'high' }),
+  setRoutingProfile: vi
+    .fn()
+    .mockResolvedValue({ claude: {}, providers: [], routing: { profile: 'balanced' } }),
   resolveActiveReasoningEffort: vi.fn().mockResolvedValue('high'),
   resolveActiveModelChangeTarget: vi.fn().mockResolvedValue(undefined),
   setNotificationsEnabled: vi
@@ -295,6 +299,7 @@ describe('settings IPC handlers', () => {
       'settings:upsert-provider',
       'settings:delete-provider',
       'settings:set-active-provider',
+      'settings:set-routing',
       'settings:set-conversation-skill-import-enabled',
       'settings:validate-provider',
       'settings:cancel-codex-login',
@@ -1028,6 +1033,34 @@ describe('settings IPC handlers', () => {
     expect(onReasoningEffortChanged).toHaveBeenCalledWith('max')
     expect(onActiveProviderChanged).not.toHaveBeenCalled()
     expect(result).toBe(snapshot)
+  })
+
+  it('persists a valid routing profile and rotates future runtime generations', async () => {
+    handlers.clear()
+    const service = createFakeService()
+    const snapshot = { claude: {}, providers: [], routing: { profile: 'balanced' } }
+    service.setRoutingProfile.mockResolvedValue(snapshot)
+    const onAgentFrameworkChanged = vi.fn()
+    registerTestSettingsIpcHandlers({ service: asService(service), onAgentFrameworkChanged })
+
+    const result = await invoke('settings:set-routing', { profile: 'balanced' })
+
+    expect(service.setRoutingProfile).toHaveBeenCalledWith('balanced')
+    expect(onAgentFrameworkChanged).toHaveBeenCalledOnce()
+    expect(result).toBe(snapshot)
+  })
+
+  it('rejects an unknown routing profile before persistence or runtime rotation', async () => {
+    handlers.clear()
+    const service = createFakeService()
+    const onAgentFrameworkChanged = vi.fn()
+    registerTestSettingsIpcHandlers({ service: asService(service), onAgentFrameworkChanged })
+
+    await expect(invoke('settings:set-routing', { profile: 'fastest' })).rejects.toThrow(
+      'Unknown routing profile'
+    )
+    expect(service.setRoutingProfile).not.toHaveBeenCalled()
+    expect(onAgentFrameworkChanged).not.toHaveBeenCalled()
   })
 
   it('respawns the agent when the framework cannot apply the level live', async () => {

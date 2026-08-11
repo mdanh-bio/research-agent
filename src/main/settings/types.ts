@@ -20,6 +20,7 @@ import type { PackageMirror } from '../../shared/mirror'
 import type { NotebookLanguage } from '../../shared/notebook'
 import type { RuntimeEnablement, RuntimeSelection } from '../../shared/notebook-runtime'
 import type { CloseActionPreference } from '../../shared/window-controls'
+import type { RoutingSettings } from '../../shared/routing-settings'
 import type { AgentFrameworkId } from '../agent-framework'
 import type {
   OAuthClientInformationMixed,
@@ -159,6 +160,8 @@ export type StoredSettings = {
   appIconVariant?: AppIconVariant
   // Default approval profile for new conversations. Absent means the safe 'ask' default.
   defaultPermissionProfile?: PermissionProfileId
+  // Transparent routing is opt-in. Missing is the safe, behavior-preserving `off` default.
+  routing?: RoutingSettings
   // Detected opencode executable path + reported version (for the status card). Absent = detect on PATH.
   opencodePath?: string
   opencodeVersion?: string

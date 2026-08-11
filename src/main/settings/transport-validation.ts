@@ -6,6 +6,10 @@ import {
 } from '../../shared/settings'
 import type { CloseActionPreference } from '../../shared/window-controls'
 import { isPermissionProfileId, type PermissionProfileId } from '../../shared/permission-profiles'
+import {
+  isRoutingProfileSelection,
+  type RoutingProfileSelection
+} from '../../shared/routing-settings'
 
 const readField = (value: unknown, field: string): unknown =>
   typeof value === 'object' && value !== null
@@ -26,6 +30,14 @@ const readReasoningEffort = (request: unknown): ReasoningEffort => {
     throw new Error(`Unknown reasoning effort: ${String(effort)}`)
   }
   return effort
+}
+
+const readRoutingProfile = (request: unknown): RoutingProfileSelection => {
+  const profile = readField(request, 'profile')
+  if (!isRoutingProfileSelection(profile)) {
+    throw new Error(`Unknown routing profile: ${String(profile)}`)
+  }
+  return profile
 }
 
 const readConversationSkillImportEnabled = (request: unknown): boolean => {
@@ -83,5 +95,6 @@ export {
   readGitHubToken,
   readIsolatedClaudeToken,
   readNotificationsEnabled,
-  readReasoningEffort
+  readReasoningEffort,
+  readRoutingProfile
 }

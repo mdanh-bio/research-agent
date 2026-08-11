@@ -30,6 +30,9 @@ import type { ProfileService } from '../specialist/service'
 import { resolveConfigRoot, resolveDataRoot } from '../storage-root'
 import type { UploadRepository } from '../uploads/repository'
 import type { SessionPersistenceCoordinator } from '../session-persistence/coordinator'
+import { getProjectDbClient } from '../projects/prisma-client'
+import { ModelRoutingLedger } from '../model-routing/ledger'
+import { RoutedRunOrchestrator } from '../model-routing/runtime-orchestrator'
 import { AgentMcpHttpHost } from './mcp-http-host'
 import { projectRegistrySessionGrants } from './permission-broker'
 import { AcpRuntime, type AcpRuntimeCallbacks, type AcpRuntimeOptions } from './runtime'
@@ -118,6 +121,10 @@ const createAcpRuntime = ({
   const configRoot = resolveConfigRoot()
   const dataRoot = resolveDataRoot()
   const defaultCwd = homedir()
+  const routedRuns = new RoutedRunOrchestrator(
+    (workClass, options) => settingsService.resolveConfiguredRoute(workClass, options),
+    new ModelRoutingLedger(() => getProjectDbClient(dataRoot))
+  )
   const callbacks: AcpRuntimeCallbacks = {
     onStateChanged: (state: AcpStateSnapshot) => broadcastToRenderers('acp:state', state),
     onEvent: (event: AcpRuntimeEvent) => {
@@ -151,13 +158,17 @@ const createAcpRuntime = ({
 
   return new AcpRuntimeCoordinator(
     (runtimeCallbacks, permissionGrantStore) => {
-      const selection = settingsService.captureActiveAgentBackendSelection()
+      const backendRoute = settingsService.captureActiveAgentBackendRoute()
       const runtimeOptions: AcpRuntimeOptions = {
         appVersion: app.getVersion(),
         // Packaged macOS apps often start with cwd at "/" or the app bundle; use home instead.
         defaultCwd,
-        resolveBackend: async (context) =>
-          settingsService.resolveAgentBackend(await selection, context),
+        resolveBackend: async (context) => {
+          const route = await backendRoute
+          return route.kind === 'routed'
+            ? settingsService.resolveRoutedAgentBackend(route.resolution.decision, context)
+            : settingsService.resolveAgentBackend(route.selection, context)
+        },
         mcpHttpHost: new AgentMcpHttpHost(),
         skills: {
           needForceLoad: (ids) => settingsService.skillsNeedingForceLoad(ids),
@@ -327,7 +338,9 @@ const createAcpRuntime = ({
     },
     permissionGrantRegistry
       ? () => projectRegistrySessionGrants(permissionGrantRegistry.listCached())
-      : undefined
+      : undefined,
+    routedRuns,
+    (target) => settingsService.resolveRoutedAgentModelChangeTarget(target)
   )
 }
 

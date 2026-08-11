@@ -6,7 +6,11 @@ import {
   type ApplicationCommandRegistrar
 } from '../application-command-router'
 import type { CallerContext } from '../caller-context'
-import { readIsolatedClaudeToken, readReasoningEffort } from './transport-validation'
+import {
+  readIsolatedClaudeToken,
+  readReasoningEffort,
+  readRoutingProfile
+} from './transport-validation'
 import type { RuntimeSettingsWorkflows } from './workflows/runtime'
 
 type RuntimeSettingsCommandWorkflows = Pick<
@@ -22,6 +26,7 @@ type RuntimeSettingsCommandWorkflows = Pick<
   | 'setActiveProvider'
   | 'setAgentFramework'
   | 'setReasoningEffort'
+  | 'setRoutingSettings'
   | 'uninstallRuntime'
   | 'upsertProvider'
 >
@@ -77,6 +82,11 @@ const settingsRuntimeApplicationCommands = Object.freeze({
     WorkflowArgs<'setReasoningEffort'>,
     WorkflowResult<'setReasoningEffort'>
   >('settings:set-reasoning-effort'),
+  setRouting: defineApplicationCommand<
+    'settings:set-routing',
+    WorkflowArgs<'setRoutingSettings'>,
+    WorkflowResult<'setRoutingSettings'>
+  >('settings:set-routing'),
   loginSharedClaude: defineApplicationCommand<
     'settings:login-shared-claude',
     readonly [],
@@ -123,6 +133,7 @@ const settingsRuntimeApplicationCommandGroup = defineApplicationCommandGroup('se
   settingsRuntimeApplicationCommands.setActiveProvider,
   settingsRuntimeApplicationCommands.setAgentFramework,
   settingsRuntimeApplicationCommands.setReasoningEffort,
+  settingsRuntimeApplicationCommands.setRouting,
   settingsRuntimeApplicationCommands.loginSharedClaude,
   settingsRuntimeApplicationCommands.logoutSharedClaude,
   settingsRuntimeApplicationCommands.loginIsolatedClaude,
@@ -170,6 +181,8 @@ const registerRuntimeSettingsApplicationCommands = (
         dependencies.workflows.setAgentFramework(args[0]),
       'settings:set-reasoning-effort': ({ args }) =>
         dependencies.workflows.setReasoningEffort({ effort: readReasoningEffort(args[0]) }),
+      'settings:set-routing': ({ args }) =>
+        dependencies.workflows.setRoutingSettings({ profile: readRoutingProfile(args[0]) }),
       'settings:login-shared-claude': ({ callerContext }) => {
         requireLocalCaller(callerContext, 'settings:login-shared-claude')
         return dependencies.workflows.loginClaudeShared()

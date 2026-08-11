@@ -5,6 +5,7 @@ import type { PackageMirror } from '../../../shared/mirror'
 import type { AppIconVariant, ReasoningEffort, SettingsSnapshot } from '../../../shared/settings'
 import type { CloseActionPreference } from '../../../shared/window-controls'
 import type { PermissionProfileId } from '../../../shared/permission-profiles'
+import type { RoutingSettingsView } from '../../../shared/routing-settings'
 import {
   createSettingsPreferencesSlice,
   type SettingsPreferencesActions
@@ -19,6 +20,7 @@ type PreferencesCommands = Pick<
   | 'setClosePreference'
   | 'setAppIconVariant'
   | 'setDefaultPermissionProfile'
+  | 'setRouting'
   | 'markOnboardingComplete'
   | 'setPackageMirror'
 >
@@ -34,6 +36,7 @@ type TestStore = SettingsPreferencesActions & {
   closePreference: CloseActionPreference | undefined
   appIconVariant: AppIconVariant
   defaultPermissionProfile: PermissionProfileId
+  routing: RoutingSettingsView
   settingsWriteError: string | undefined
 }
 
@@ -85,6 +88,18 @@ const createCommands = (): CommandMocks => ({
   setDefaultPermissionProfile: vi.fn(({ profile }) =>
     Promise.resolve(snapshot({ defaultPermissionProfile: profile }))
   ),
+  setRouting: vi.fn(({ profile }) =>
+    Promise.resolve(
+      snapshot({
+        routing: {
+          profile,
+          telemetryEnabled: false,
+          status: profile === 'off' ? 'off' : 'active',
+          effectiveRoutes: {}
+        }
+      })
+    )
+  ),
   markOnboardingComplete: vi.fn().mockResolvedValue(snapshot({ onboardingCompletedAt: 42 })),
   setPackageMirror: vi.fn((mirror) => Promise.resolve(mirror))
 })
@@ -104,7 +119,8 @@ const createHarness = (): {
       conversationSkillImportEnabled: next.conversationSkillImportEnabled,
       closePreference: next.closePreference,
       appIconVariant: next.appIconVariant,
-      defaultPermissionProfile: next.defaultPermissionProfile ?? 'ask'
+      defaultPermissionProfile: next.defaultPermissionProfile ?? 'ask',
+      routing: next.routing ?? store.getState().routing
     })
   })
   const store = createStore<TestStore>((set, get) => ({
@@ -114,6 +130,12 @@ const createHarness = (): {
     closePreference: undefined,
     appIconVariant: 'light',
     defaultPermissionProfile: 'ask',
+    routing: {
+      profile: 'off',
+      telemetryEnabled: false,
+      status: 'off',
+      effectiveRoutes: {}
+    },
     settingsWriteError: undefined,
     ...createSettingsPreferencesSlice({
       getState: get,
@@ -146,6 +168,7 @@ describe('settings preferences slice', () => {
     await store.getState().setClosePreference('minimize')
     await store.getState().setAppIconVariant('dark')
     await store.getState().setDefaultPermissionProfile('auto')
+    await store.getState().setRoutingProfile('balanced')
 
     expect(commands.setReasoningEffort).toHaveBeenCalledWith({ effort: 'high' })
     expect(commands.setNotificationsEnabled).toHaveBeenCalledWith({ enabled: false })
@@ -153,7 +176,8 @@ describe('settings preferences slice', () => {
     expect(commands.setClosePreference).toHaveBeenCalledWith({ preference: 'minimize' })
     expect(commands.setAppIconVariant).toHaveBeenCalledWith({ variant: 'dark' })
     expect(commands.setDefaultPermissionProfile).toHaveBeenCalledWith({ profile: 'auto' })
-    expect(reconcileSnapshot).toHaveBeenCalledTimes(6)
+    expect(commands.setRouting).toHaveBeenCalledWith({ profile: 'balanced' })
+    expect(reconcileSnapshot).toHaveBeenCalledTimes(7)
   })
 
   it('applies immediately, then rolls back and exposes the unchanged failure copy', async () => {

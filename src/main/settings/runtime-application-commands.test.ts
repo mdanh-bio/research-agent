@@ -23,6 +23,7 @@ const expectedChannels = [
   'settings:set-active-provider',
   'settings:set-agent-framework',
   'settings:set-reasoning-effort',
+  'settings:set-routing',
   'settings:login-shared-claude',
   'settings:logout-shared-claude',
   'settings:login-isolated-claude',
@@ -78,7 +79,7 @@ const createDependencies = (): Readonly<{
 }
 
 describe('Settings runtime application commands', () => {
-  it('installs the exact 15-command inventory and dispatches a remote-safe selection', async () => {
+  it('installs the exact 16-command inventory and dispatches a remote-safe selection', async () => {
     const { dependencies, workflowMethod } = createDependencies()
     const selected = { activeProviderId: 'provider-1' }
     workflowMethod('setActiveProvider').mockResolvedValue(selected)
@@ -102,7 +103,7 @@ describe('Settings runtime application commands', () => {
     expect(workflowMethod('setActiveProvider')).toHaveBeenCalledWith({ id: 'provider-1' })
   })
 
-  it('delegates the five remote-safe mutations through the runtime workflow', async () => {
+  it('delegates the six remote-safe mutations through the runtime workflow', async () => {
     const { dependencies, workflowMethod } = createDependencies()
     const router = createApplicationCommandRouter()
     registerRuntimeSettingsApplicationCommands(router.registrar, dependencies)
@@ -127,6 +128,10 @@ describe('Settings runtime application commands', () => {
       settingsRuntimeApplicationCommands.setReasoningEffort,
       invocation([{ effort: 'high' }] as const, 'remote')
     )
+    await router.dispatcher.invoke(
+      settingsRuntimeApplicationCommands.setRouting,
+      invocation([{ profile: 'balanced' }] as const, 'remote')
+    )
 
     expect(workflowMethod('upsertProvider')).toHaveBeenCalledWith({
       type: 'custom',
@@ -139,6 +144,7 @@ describe('Settings runtime application commands', () => {
     })
     expect(workflowMethod('setAgentFramework')).toHaveBeenCalledWith({ id: 'opencode' })
     expect(workflowMethod('setReasoningEffort')).toHaveBeenCalledWith({ effort: 'high' })
+    expect(workflowMethod('setRoutingSettings')).toHaveBeenCalledWith({ profile: 'balanced' })
   })
 
   it('rejects all ten local-only commands before a runtime workflow can run', async () => {
@@ -235,11 +241,17 @@ describe('Settings runtime application commands', () => {
     expect(workflowMethod('logoutIsolatedCodex')).toHaveBeenCalledOnce()
   })
 
-  it('preserves reasoning and isolated-token transport validation before workflow delegation', async () => {
+  it('preserves routing, reasoning, and isolated-token validation before workflow delegation', async () => {
     const { dependencies, workflowMethod } = createDependencies()
     const router = createApplicationCommandRouter()
     registerRuntimeSettingsApplicationCommands(router.registrar, dependencies)
 
+    await expect(
+      router.dispatcher.invoke(
+        settingsRuntimeApplicationCommands.setRouting,
+        invocation([{ profile: 'fastest' } as never] as const)
+      )
+    ).rejects.toThrow('Unknown routing profile: fastest')
     await expect(
       router.dispatcher.invoke(
         settingsRuntimeApplicationCommands.setReasoningEffort,
@@ -253,6 +265,7 @@ describe('Settings runtime application commands', () => {
       )
     ).rejects.toThrow('Claude sign-in token must be a string.')
 
+    expect(workflowMethod('setRoutingSettings')).not.toHaveBeenCalled()
     expect(workflowMethod('setReasoningEffort')).not.toHaveBeenCalled()
     expect(workflowMethod('loginIsolatedClaude')).not.toHaveBeenCalled()
   })

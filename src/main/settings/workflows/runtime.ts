@@ -5,6 +5,7 @@ import {
   type SetActiveProviderRequest,
   type SetAgentFrameworkRequest,
   type SetReasoningEffortRequest,
+  type SetRoutingSettingsRequest,
   type UpsertProviderRequest
 } from '../../../shared/settings'
 import type { ResolvedReasoningEffort } from '../../../shared/reasoning-effort'
@@ -22,6 +23,7 @@ type RuntimeSettingsWorkflowStore = Pick<
   | 'setActiveProvider'
   | 'setAgentFramework'
   | 'setReasoningEffort'
+  | 'setRoutingProfile'
   | 'resolveActiveReasoningEffort'
   | 'resolveActiveModelChangeTarget'
   | 'loginClaudeShared'
@@ -129,6 +131,16 @@ class RuntimeSettingsWorkflows {
     const resolvedEffort = await this.settings.resolveActiveReasoningEffort(request.effort)
     const appliedLive = await this.effects.applyReasoningEffort(resolvedEffort)
     if (!appliedLive) this.effects.requestProviderReconnect()
+    return snapshot
+  }
+
+  async setRoutingSettings(
+    request: SetRoutingSettingsRequest
+  ): Promise<Awaited<ReturnType<RuntimeSettingsWorkflowStore['setRoutingProfile']>>> {
+    const snapshot = await this.settings.setRoutingProfile(request.profile)
+    // Route targets are generation-owned. Active turns drain on the old generation; subsequent
+    // work resolves through the newly selected opt-in profile.
+    this.effects.requestAgentFrameworkSwitch()
     return snapshot
   }
 

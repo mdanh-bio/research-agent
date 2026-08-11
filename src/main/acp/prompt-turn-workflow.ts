@@ -65,6 +65,7 @@ type AcpPromptTurnEnvironment = Readonly<{
   ) => void
   onSkillImportAttachmentEligible?: (sessionId: string, turnToken: string, uri: string) => void
   onProviderPromptAccepted?: (sessionId: string, promptAttemptId?: string) => void
+  onBeforeProviderPromptDispatch?: (sessionId: string, promptAttemptId?: string) => Promise<void>
   routeNotification: (notification: SessionNotification, sessionId: string) => void
   diagnosticContext: () => Record<string, unknown>
   pushUserMessage: (input: { sessionId: string; promptMessageId?: string; text: string }) => void
@@ -353,6 +354,7 @@ class AcpPromptTurnWorkflow {
               ...env.diagnosticContext()
             })
           }
+          await env.onBeforeProviderPromptDispatch?.(sessionId, turn.mode.promptAttemptId)
           return 'active'
         },
         captureStop: () => interactions.captureTerminal(interaction, 'stop'),

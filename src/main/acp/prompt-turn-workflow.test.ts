@@ -52,6 +52,9 @@ type Harness = {
   onProviderPromptAccepted: Mock<
     NonNullable<AcpPromptTurnWorkflowOptions['environment']['onProviderPromptAccepted']>
   >
+  onBeforeProviderPromptDispatch: Mock<
+    NonNullable<AcpPromptTurnWorkflowOptions['environment']['onBeforeProviderPromptDispatch']>
+  >
   owner: AcpSessionInteractionOwner
   planLifecycle: {
     beforeRelease: Mock<AcpPromptTurnWorkflowOptions['plan']['beforeRelease']>
@@ -126,6 +129,9 @@ const createHarness = (
     execute?: AcpPromptTurnWorkflowOptions['executor']['execute']
     finalize?: AcpPromptOutcomeFinalizer['finalize']
     onPromptStarted?: () => void
+    onBeforeProviderPromptDispatch?: NonNullable<
+      AcpPromptTurnWorkflowOptions['environment']['onBeforeProviderPromptDispatch']
+    >
     preflightPlan?: AcpPromptTurnWorkflowOptions['plan']['preflight']
     prepare?: AcpPromptTurnWorkflowOptions['preparation']['prepare']
     providerReconnectPending?: () => boolean
@@ -225,6 +231,12 @@ const createHarness = (
   const onProviderPromptAccepted: Harness['onProviderPromptAccepted'] = vi.fn(() => {
     journal.push('accepted')
   })
+  const onBeforeProviderPromptDispatch: Harness['onBeforeProviderPromptDispatch'] = vi.fn(
+    async (...args) => {
+      journal.push('before-provider-dispatch')
+      await input.onBeforeProviderPromptDispatch?.(...args)
+    }
+  )
   const executor: Harness['executor'] = vi.fn(async (request) => {
     journal.push('execute')
     if (input.execute) return input.execute(request)
@@ -295,6 +307,7 @@ const createHarness = (
       contextEstimateInput: () => ({ frameworkId: 'opencode' }),
       selectedContextWindow: () => 128_000,
       emitSkillActivities,
+      onBeforeProviderPromptDispatch,
       onProviderPromptAccepted,
       routeNotification: vi.fn(),
       diagnosticContext: () => ({}),
@@ -330,6 +343,7 @@ const createHarness = (
     interactions,
     journal,
     onProviderPromptAccepted,
+    onBeforeProviderPromptDispatch,
     owner,
     planLifecycle,
     permission,
@@ -352,6 +366,27 @@ const request = (): AcpPromptRequest => ({
 })
 
 describe('AcpPromptTurnWorkflow', () => {
+  it('runs the reservation activation hook at the final provider-dispatch boundary', async () => {
+    const activation = vi.fn().mockResolvedValue(undefined)
+    const harness = createHarness({
+      onBeforeProviderPromptDispatch: activation,
+      execute: async (input) => {
+        expect(await input.beforeDispatch()).toBe('active')
+        input.onAccepted()
+        const response: PromptResponse = { stopReason: 'end_turn' }
+        input.captureStop()
+        return { kind: 'stopped', response, facts: {} }
+      }
+    })
+
+    await harness.workflow.run(request(), { kind: 'user', promptAttemptId: 'attempt-routed' })
+
+    expect(activation).toHaveBeenCalledWith('s1', 'attempt-routed')
+    expect(harness.journal.indexOf('prepare')).toBeLessThan(
+      harness.journal.indexOf('before-provider-dispatch')
+    )
+  })
+
   it('admits and executes one user turn in owner order with its opaque handles', async () => {
     const harness = createHarness()
 

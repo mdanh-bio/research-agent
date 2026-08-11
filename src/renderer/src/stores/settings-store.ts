@@ -13,6 +13,10 @@ import {
 import type { PackageMirror } from '../../../shared/mirror'
 import type { CloseActionPreference } from '../../../shared/window-controls'
 import {
+  DEFAULT_ROUTING_SETTINGS,
+  type RoutingSettingsView
+} from '../../../shared/routing-settings'
+import {
   DEFAULT_PERMISSION_PROFILE,
   getDefaultPermissionProfile,
   type PermissionProfileId
@@ -115,6 +119,7 @@ type SettingsStoreData = RuntimeSetupState &
     appIconVariant: AppIconVariant
     // Approval profile applied only when creating a new conversation.
     defaultPermissionProfile: PermissionProfileId
+    routing: RoutingSettingsView
   }
 
 type SettingsStoreCore = SettingsStoreData &
@@ -162,7 +167,13 @@ export const createInitialSettingsState = (): SettingsStoreData => ({
   conversationSkillImportEnabled: DEFAULT_CONVERSATION_SKILL_IMPORT_ENABLED,
   closePreference: undefined,
   appIconVariant: DEFAULT_APP_ICON_VARIANT,
-  defaultPermissionProfile: DEFAULT_PERMISSION_PROFILE
+  defaultPermissionProfile: DEFAULT_PERMISSION_PROFILE,
+  routing: {
+    ...DEFAULT_ROUTING_SETTINGS,
+    telemetryEnabled: false,
+    status: 'off',
+    effectiveRoutes: {}
+  }
 })
 
 // Applies a fresh main-process snapshot to the renderer cache.
@@ -183,6 +194,12 @@ const applySnapshot = (snapshot: SettingsSnapshot): Partial<SettingsStoreData> =
   closePreference: snapshot.closePreference,
   appIconVariant: snapshot.appIconVariant ?? DEFAULT_APP_ICON_VARIANT,
   defaultPermissionProfile: getDefaultPermissionProfile(snapshot),
+  routing: snapshot.routing ?? {
+    ...DEFAULT_ROUTING_SETTINGS,
+    telemetryEnabled: false,
+    status: 'off',
+    effectiveRoutes: {}
+  },
   agentFrameworkId: snapshot.agentFrameworkId,
   agentFrameworks: snapshot.agentFrameworks,
   opencode: snapshot.opencode,

@@ -57,7 +57,7 @@ const {
     .fn()
     .mockResolvedValue({ sessionId: 's-1', cwd: '/workspace', contextReset: true })
   const resumeSession = vi.fn().mockResolvedValue({ sessionId: 's-1', cwd: '/workspace' })
-  const sendPrompt = vi.fn().mockResolvedValue(undefined)
+  const sendPrompt = vi.fn().mockResolvedValue({ stopReason: 'end_turn' })
   const AcpRuntimeMock = vi.fn().mockImplementation(function () {
     return {
       createSession,
@@ -158,7 +158,11 @@ const registerWithFakes = (overrides?: {
     authorizeSkillImportReferencedUploads: vi.fn(async () => () => undefined),
     settingsService: {
       captureActiveAgentBackendSelection: vi.fn().mockResolvedValue({}),
+      captureActiveAgentBackendRoute: vi.fn().mockResolvedValue({ kind: 'legacy', selection: {} }),
       resolveAgentBackend: vi.fn().mockResolvedValue({}),
+      resolveRoutedAgentBackend: vi.fn().mockResolvedValue({}),
+      resolveConfiguredRoute: vi.fn().mockResolvedValue(undefined),
+      resolveRoutedAgentModelChangeTarget: vi.fn().mockResolvedValue(undefined),
       listSpecialistSkillCatalog: vi
         .fn()
         .mockResolvedValue(overrides?.specialistSkillCatalog ?? []),
@@ -203,7 +207,7 @@ afterEach(() => {
   disconnect.mockClear()
   resumeSession.mockClear()
   sendPrompt.mockReset()
-  sendPrompt.mockResolvedValue(undefined)
+  sendPrompt.mockResolvedValue({ stopReason: 'end_turn' })
   errorLogSpy.mockClear()
   infoLogSpy.mockClear()
   AcpRuntimeMock.mockClear()

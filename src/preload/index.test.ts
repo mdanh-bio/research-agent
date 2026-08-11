@@ -475,6 +475,7 @@ describe('preload bridge — public surface inventory', () => {
       'settings.setNotificationsEnabled',
       'settings.setPackageMirror',
       'settings.setReasoningEffort',
+      'settings.setRouting',
       'settings.setSkillEnabled',
       'settings.setToolPermission',
       'settings.uninstallClaude',
@@ -569,10 +570,10 @@ describe('preload bridge — Connector configuration files', () => {
 })
 
 describe('preload bridge — runtime renderer contract catalog', () => {
-  it('routes all 186 owned methods through their cataloged Electron channels', async () => {
+  it('routes every owned method through its cataloged Electron channel', async () => {
     const requestContracts = runtimeContracts.filter(({ kind }) => kind === 'method')
 
-    expect(runtimeContracts).toHaveLength(187)
+    expect(runtimeContracts).toHaveLength(188)
 
     for (const contract of requestContracts) {
       invokeMock.mockClear()
