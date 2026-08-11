@@ -19,18 +19,20 @@ links to the project SQLite database. Target ids are not treated as identities; 
 and ordered eligible alternates must match the snapshot.
 
 Fallback attempts must be reserved from the persisted eligible-alternate order. They require the same
-request identity, a finalized eligible failure, and no recorded side effect. Reservation and
-activation are separate so a late effect report can invalidate an undispatched fallback. A
-benign-refusal fallback additionally requires verified, scope-bound, single-use approval evidence.
-At most two alternates are allowed. Prompt and attachment content remains authoritative in existing
-Session storage.
+request identity, an eligible _pre-dispatch_ failure, and no recorded side effect. Reservation and
+activation are separate: activation occurs immediately before `session.prompt()`, and every failure
+after that conservative boundary fails closed because a persistent ACP session cannot prove a clean
+replay input. A late effect report is correlated to the exact model attempt. A benign-refusal fallback
+additionally requires verified, scope-bound, single-use approval evidence; production has no issuer or
+verifier yet, so it stops for review. At most two pre-dispatch alternates are allowed. Prompt and
+attachment content remains authoritative in existing Session storage.
 
 ## Consequences
 
 The pure planner and ledger remain independently testable. The configured catalog, settings/UI,
 application-command surface, ACP prompt boundary, provider model switch, lifecycle ledger events, and
-bounded availability fallback are now connected behind a default-off profile. The Settings table is a
-user-default preview; project overrides resolve at dispatch. Benign-refusal replay still requires a
+bounded pre-dispatch target fallback are connected behind a default-off profile. The Settings table is
+a user-default preview; project overrides resolve at dispatch. Benign-refusal replay still requires a
 future production approval issuer/verifier and otherwise stops for review. Local deterministic tests
-and a production build do not prove that a real provider request was routed or retried, so that live
-verification remains a separately reported boundary.
+and a production build do not prove that a real provider request was routed; no provider-to-provider
+post-dispatch replay is claimed.

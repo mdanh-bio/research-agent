@@ -50,22 +50,25 @@ only the preset name.
 
 ## Fallback contract
 
-- Eligible triggers: timeout, rate limit, provider unavailable, malformed response, or a user-approved
-  category of benign-research refusal.
+- Eligible automatic fallback is limited to an unavailable or inapplicable target while its ledger
+  attempt remains reserved. Provider-origin timeout, rate-limit, malformed-response, refusal, and
+  unknown failures are recorded after activation and never replay automatically.
 - A benign-refusal category alone is not approval. Automatic handling requires explicit single-use
   user approval bound to the project research-scope id/version, session, run, failed attempt, request
   identity, policy version, data boundary, source target, alternate target, and approved provider.
   The ledger also requires an approval-owner verifier and persists the secret-free evidence.
-- Retry the byte-equivalent request and attachments. Never rewrite a request to evade a safety policy.
+- No persistent-session replay occurs after `session.prompt()` may have been invoked. A future
+  fresh-context/transport retry design must prove an immutable transcript and byte-equivalent input;
+  it is outside M1.
 - The alternate provider must satisfy capability, research-scope, and data-boundary requirements.
 - Stop after two alternate attempts.
-- Replay automatically only before any side-effecting tool call. After effects begin, create a
-  recovery handoff or ask the user to avoid duplicate files and jobs.
-- The ledger computes a domain-separated SHA-256 identity from the request bytes and validated,
-  ordered attachment digests. A fallback is first reserved, then activated immediately before
-  dispatch; a late side-effect event monotonically marks the prior attempt and invalidates an active
-  reservation. Attachments without an immutable digest stop before a durable run is created. User
-  cancellation is terminal; an unqualified `AbortError` is not treated as timeout evidence.
+- A side-effect event is bound to its exact model-attempt id, never inferred from the currently active
+  session attempt. After activation, any recorded effect blocks recovery and preserves handoff state.
+- The ledger computes a domain-separated v2 SHA-256 identity from request bytes and validated ordered
+  input groups. Routed `@` references must resolve to an authoritative immutable Version with verified
+  checksum and size; legacy/path-only references stop before a durable run. A fallback is first
+  reserved, then activated immediately before dispatch. User cancellation is terminal; an unqualified
+  `AbortError` or local `SyntaxError` is not provider availability evidence.
 - Record every attempt, trigger, latency, usage, cost, result class, request hash, and side-effect
   state. Ambiguous safety cases stop for review.
 
@@ -76,7 +79,8 @@ non-agent models must add an explicit per-model tool-support declaration before 
 eligible. Credentials are resolved from secure storage only after target selection and never copied
 into a policy snapshot.
 
-The production ACP composer/orchestrator path now uses these contracts only after explicit opt-in.
-Availability replay is active under deterministic tests; benign-refusal replay remains fail closed
-until a production approval issuer/verifier supplies the already-required single-use evidence. No real
-provider request or fallback was live-executed during Phase B acceptance.
+The production ACP composer/orchestrator path uses these contracts only after explicit opt-in. It
+captures policy/catalog state once, derives image capability from prompt inputs, and accepts a
+stricter per-request data boundary. Benign-refusal replay remains fail closed until a production
+approval issuer/verifier supplies the already-required single-use evidence. No real provider request
+or fallback was live-executed during Phase B acceptance.

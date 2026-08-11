@@ -23,9 +23,9 @@ export type RequestIdentityInput = Readonly<{
 declare const requestIdentityBrand: unique symbol
 export type RequestIdentity = string & { readonly [requestIdentityBrand]: true }
 
-export const REQUEST_IDENTITY_PREFIX = 'sha256:research-agent-request-v1:'
+export const REQUEST_IDENTITY_PREFIX = 'sha256:research-agent-request-v2:'
 const SHA256_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/
-const REQUEST_IDENTITY_PATTERN = /^sha256:research-agent-request-v1:[0-9a-f]{64}$/
+const REQUEST_IDENTITY_PATTERN = /^sha256:research-agent-request-v2:[0-9a-f]{64}$/
 
 export type BenignRefusalApprovalEvidence = Readonly<{
   approvalId: string
@@ -138,7 +138,7 @@ export const computeRequestIdentity = (input: RequestIdentityInput): RequestIden
     throw new Error('Request attachments must be an array.')
   }
   const hash = createHash('sha256')
-  hash.update('research-agent-request-v1\0')
+  hash.update('research-agent-request-v2\0')
   updateFramed(hash, typeof input.body === 'string' ? Buffer.from(input.body) : input.body)
   for (const attachment of input.attachments ?? []) {
     if (!attachment || typeof attachment !== 'object') {

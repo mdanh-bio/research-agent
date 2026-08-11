@@ -1,8 +1,11 @@
+import { createReadStream } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
 import type { FileReference } from '../../shared/artifacts'
 import { parseArtifactVersionLocator } from '../../shared/artifact-provenance'
+import { imageAttachmentMimeType, parseUploadVersionReference } from '../../shared/uploads'
 import type { ArtifactRepository } from '../artifacts/repository'
 import type { ArtifactProvenanceRepository } from '../artifacts/provenance-repository'
 import type { UploadRepository } from '../uploads/repository'
@@ -19,6 +22,22 @@ export type ResolvedFileReference = {
   mimeType?: string
   size: number
   allowSkillImportReference: boolean
+}
+
+export type ImmutableFileReference = Readonly<{
+  canonicalReference: FileReference
+  versionId: string
+  name: string
+  mimeType?: string
+  sizeBytes: number
+  sha256: `sha256:${string}`
+  imageInput: boolean
+}>
+
+const checksumFile = async (path: string): Promise<`sha256:${string}`> => {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return `sha256:${hash.digest('hex')}`
 }
 
 // This adapter is the deliberate extension seam for linked folders and other future file origins.
@@ -54,6 +73,47 @@ export class FileReferenceResolver {
       uri: pathToFileURL(resolved.absolutePath).href,
       size: fileInfo.size
     }
+  }
+
+  // Routed runs require a native immutable Version rather than a compatibility path.  The managed
+  // resolver re-checks ownership and version bytes; this additional digest binds the exact contents
+  // to the routing ledger without persisting a local path.
+  async resolveImmutable(
+    context: FileReferenceContext,
+    reference: FileReference
+  ): Promise<ImmutableFileReference> {
+    if (reference.source === 'linked-folder') {
+      throw new Error('Transparent routing requires an immutable managed File Version reference.')
+    }
+    const locator =
+      reference.source === 'upload'
+        ? parseUploadVersionReference(reference.path)
+        : parseArtifactVersionLocator(reference.path)
+    if (!locator) {
+      throw new Error(
+        'Transparent routing requires an immutable Version reference, not a legacy file path.'
+      )
+    }
+    if (reference.versionId && reference.versionId !== locator.versionId) {
+      throw new Error('Referenced File Version id does not match its immutable locator.')
+    }
+    const resolved = await this.resolve(context, reference)
+    const sha256 = await checksumFile(resolved.absolutePath)
+    const canonicalReference = Object.freeze({
+      ...reference,
+      versionId: locator.versionId,
+      name: resolved.name,
+      ...(resolved.mimeType ? { mimeType: resolved.mimeType } : {})
+    }) as FileReference
+    return Object.freeze({
+      canonicalReference,
+      versionId: locator.versionId,
+      name: resolved.name,
+      ...(resolved.mimeType ? { mimeType: resolved.mimeType } : {}),
+      sizeBytes: resolved.size,
+      sha256,
+      imageInput: Boolean(imageAttachmentMimeType(resolved.name, resolved.mimeType))
+    })
   }
 }
 

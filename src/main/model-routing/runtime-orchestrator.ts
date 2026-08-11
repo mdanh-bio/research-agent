@@ -1,6 +1,8 @@
 import type {
   AgentRunStatus,
+  DataBoundary,
   ModelFailureCategory,
+  ModelCapability,
   ModelRoutePolicy,
   ModelTarget,
   WorkClass
@@ -14,7 +16,13 @@ import {
 } from './fallback-policy'
 import { ModelRoutingLedger } from './ledger'
 import { modelTargetsEqual } from '../../shared/model-routing'
-import type { ConfiguredRouteResolution } from './configured-policy'
+import type { ConfiguredRouteResolution, ConfiguredRoutingContext } from './configured-policy'
+
+export type PreparedRoutedRequestIdentity = RequestIdentityInput &
+  Readonly<{
+    requiredCapabilities?: readonly ModelCapability[]
+    dataBoundary?: DataBoundary
+  }>
 
 export type RoutedRunInput = Readonly<{
   projectId: string
@@ -22,7 +30,11 @@ export type RoutedRunInput = Readonly<{
   promptMessageId?: string
   workClass: WorkClass
   // Deferred so the behavior-preserving routing-off path does not hash prompt or attachment data.
-  request: RequestIdentityInput | (() => RequestIdentityInput)
+  request:
+    | PreparedRoutedRequestIdentity
+    | (() => PreparedRoutedRequestIdentity | Promise<PreparedRoutedRequestIdentity>)
+  requiredCapabilities?: readonly ModelCapability[]
+  dataBoundary?: DataBoundary
   role?: string
   sessionOrAgentPin?: ModelRoutePolicy
 }>
@@ -46,14 +58,23 @@ export type RoutedDispatchResult<Value> = Readonly<{
   costUsd?: number
 }>
 
-type RoutedRunResolver = (
-  workClass: WorkClass,
-  options: Readonly<{
-    projectId: string
-    sessionOrAgentPin?: ModelRoutePolicy
-    excludedTargetIds?: readonly string[]
-  }>
-) => Promise<ConfiguredRouteResolution | undefined>
+type RoutedRunResolver = Readonly<{
+  capture: (
+    options: Readonly<{
+      projectId: string
+      sessionOrAgentPin?: ModelRoutePolicy
+    }>
+  ) => Promise<ConfiguredRoutingContext | undefined>
+  resolve: (
+    context: ConfiguredRoutingContext,
+    request: Readonly<{
+      workClass: WorkClass
+      requiredCapabilities?: readonly ModelCapability[]
+      dataBoundary?: DataBoundary
+      excludedTargetIds?: readonly string[]
+    }>
+  ) => Promise<ConfiguredRouteResolution>
+}>
 
 type ActiveAttempt = {
   attemptId: string
@@ -113,6 +134,41 @@ const finiteStatus = (value: unknown): number | undefined =>
 const stringCode = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length <= 128 ? value : undefined
 
+const providerErrorKind = (value: unknown): boolean =>
+  typeof value === 'string' &&
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '-') === 'provider-error'
+
+const balancedJson = (value: string): Record<string, unknown> | undefined => {
+  const start = value.indexOf('{')
+  if (start < 0) return undefined
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') inString = true
+    else if (character === '{') depth += 1
+    else if (character === '}' && --depth === 0) {
+      try {
+        const parsed: unknown = JSON.parse(value.slice(start, index + 1))
+        return isRecord(parsed) ? parsed : undefined
+      } catch {
+        return undefined
+      }
+    }
+  }
+  return undefined
+}
+
 const FAILURE_CATEGORIES = new Set<ModelFailureCategory>([
   'timeout',
   'rate_limit',
@@ -129,27 +185,39 @@ const FAILURE_CATEGORIES = new Set<ModelFailureCategory>([
 // Provider bridges attach structured status/code data. Never infer a safety or refusal category from
 // provider prose; benign-refusal fallback therefore remains impossible without an audited category.
 export const routingFailureEvidenceFromError = (error: unknown): ModelFailureEvidence => {
-  if (error instanceof SyntaxError) return Object.freeze({ category: 'malformed_response' })
   if (!isRecord(error)) return Object.freeze({})
   const explicit = isRecord(error.routingFailureEvidence) ? error.routingFailureEvidence : undefined
   const data = isRecord(error.data) ? error.data : undefined
-  const nested = data && isRecord(data.error) ? data.error : undefined
-  const rawCategory = stringCode(explicit?.category ?? data?.failureCategory)
+  const providerOrigin =
+    Boolean(explicit) || data?.errorName === 'APIError' || providerErrorKind(data?.errorKind)
+  if (!providerOrigin) return Object.freeze({})
+  const messagePayload =
+    !explicit &&
+    typeof error.message === 'string' &&
+    (data?.errorName === 'APIError' || providerErrorKind(data?.errorKind))
+      ? balancedJson(error.message)
+      : undefined
+  const nested =
+    (data && isRecord(data.error) ? data.error : undefined) ??
+    (messagePayload && isRecord(messagePayload.error) ? messagePayload.error : undefined)
+  const rawCategory = stringCode(explicit?.category ?? data?.failureCategory ?? data?.errorKind)
   const category =
     rawCategory && FAILURE_CATEGORIES.has(rawCategory as ModelFailureCategory)
       ? (rawCategory as ModelFailureCategory)
       : undefined
   const httpStatus =
     finiteStatus(explicit?.httpStatus) ??
-    finiteStatus(error.status) ??
-    finiteStatus(data?.httpStatus) ??
     finiteStatus(data?.status) ??
-    finiteStatus(nested?.status)
+    finiteStatus(data?.httpStatus) ??
+    finiteStatus(nested?.status) ??
+    finiteStatus(messagePayload?.status) ??
+    finiteStatus(error.status)
   const code =
     stringCode(explicit?.code) ??
-    stringCode(error.code) ??
     stringCode(data?.code) ??
     stringCode(nested?.code) ??
+    stringCode(messagePayload?.code) ??
+    stringCode(error.code) ??
     (error.name === 'TimeoutError' ? 'timeout' : undefined)
   return Object.freeze({
     ...(category ? { category } : {}),
@@ -158,15 +226,13 @@ export const routingFailureEvidenceFromError = (error: unknown): ModelFailureEvi
   })
 }
 
-const attemptKey = (sessionId: string): string => sessionId
-
 // Owns one routed prompt's resolution, immutable snapshot, attempt lifecycle, and bounded fallback.
 // The caller owns the actual provider dispatch and applies each concrete target before invoking it.
 export class RoutedRunOrchestrator {
   private readonly activeAttempts = new Map<string, ActiveAttempt>()
 
   constructor(
-    private readonly resolveRoute: RoutedRunResolver,
+    private readonly resolver: RoutedRunResolver,
     private readonly ledger: ModelRoutingLedger,
     private readonly now: () => number = Date.now
   ) {}
@@ -175,14 +241,21 @@ export class RoutedRunOrchestrator {
     input: RoutedRunInput,
     dispatch: (context: RoutedDispatchContext) => Promise<RoutedDispatchResult<Value>>
   ): Promise<Value> {
-    const initial = await this.resolveRoute(input.workClass, {
+    const routingContext = await this.resolver.capture({
       projectId: input.projectId,
       sessionOrAgentPin: input.sessionOrAgentPin
     })
-    if (!initial) return (await dispatch(Object.freeze({ kind: 'legacy' }))).value
+    if (!routingContext) return (await dispatch(Object.freeze({ kind: 'legacy' }))).value
 
-    const request = typeof input.request === 'function' ? input.request() : input.request
+    const request = typeof input.request === 'function' ? await input.request() : input.request
     const requestIdentity = computeRequestIdentity(request)
+    const requiredCapabilities = request.requiredCapabilities ?? input.requiredCapabilities
+    const dataBoundary = request.dataBoundary ?? input.dataBoundary
+    const initial = await this.resolver.resolve(routingContext, {
+      workClass: input.workClass,
+      ...(requiredCapabilities ? { requiredCapabilities } : {}),
+      ...(dataBoundary ? { dataBoundary } : {})
+    })
     const run = await this.ledger.beginAgentRun({
       projectId: input.projectId,
       sessionId: input.sessionId,
@@ -216,7 +289,7 @@ export class RoutedRunOrchestrator {
           sideEffectsStarted: false,
           activated: false
         }
-        this.activeAttempts.set(attemptKey(input.sessionId), active)
+        this.activeAttempts.set(attemptId, active)
         const reservedAt = this.now()
         const activate = async (): Promise<void> => {
           if (active.activated) return
@@ -247,55 +320,73 @@ export class RoutedRunOrchestrator {
               requestIdentity,
               sideEffectsStarted: active.sideEffectsStarted
             })
-            const failure = evaluateAutomaticFallback({
-              failure: evidence,
-              routeDecision: initial.decision,
-              attempts: [...attempts, attempt]
-            })
             const latencyMs = Math.max(0, this.now() - (active.providerStartedAt ?? reservedAt))
             if (active.activated) {
+              // Activation occurs immediately before session.prompt().  Once that boundary is
+              // crossed, ACP may have accepted or partially processed the request, so replaying on
+              // the persistent session cannot prove byte-equivalent provider input.
+              const failure = evaluateAutomaticFallback({
+                failure: evidence,
+                routeDecision: initial.decision,
+                attempts: [...attempts, attempt]
+              })
               await this.ledger.finishModelAttempt(attemptId, {
                 result: 'failure',
                 failureCategory: failure.failure.category,
                 latencyMs
               })
+              attempts.push(attempt)
+              if (active.sideEffectsStarted) {
+                await finalizeRun('blocked')
+                throw new RoutingRecoveryHandoffRequiredError(failure.failure.category, {
+                  cause: error
+                })
+              }
+              await finalizeRun('failed')
+              throw error
             } else {
+              const failure = evaluateAutomaticFallback({
+                failure: evidence,
+                routeDecision: initial.decision,
+                attempts: [...attempts, attempt]
+              })
               await this.ledger.finishReservedModelAttempt(attemptId, {
                 result: 'failure',
                 failureCategory: failure.failure.category,
                 latencyMs
               })
-            }
-            attempts.push(attempt)
-            if (failure.action === 'recovery_handoff') {
-              await finalizeRun('blocked')
-              throw new RoutingRecoveryHandoffRequiredError(failure.failure.category, {
-                cause: error
+              attempts.push(attempt)
+              if (failure.action === 'recovery_handoff') {
+                await finalizeRun('blocked')
+                throw new RoutingRecoveryHandoffRequiredError(failure.failure.category, {
+                  cause: error
+                })
+              }
+              if (failure.action === 'user_review') {
+                await finalizeRun('blocked')
+                throw new RoutingUserReviewRequiredError(failure.failure.category, { cause: error })
+              }
+              if (failure.action !== 'retry_alternate' || !failure.nextTarget) {
+                await finalizeRun('failed')
+                throw error
+              }
+              excludedTargetIds.push(target.id)
+              const rerouted = await this.resolver.resolve(routingContext, {
+                workClass: input.workClass,
+                ...(requiredCapabilities ? { requiredCapabilities } : {}),
+                ...(dataBoundary ? { dataBoundary } : {}),
+                excludedTargetIds: Object.freeze([...excludedTargetIds])
               })
+              if (!modelTargetsEqual(rerouted.decision.target, failure.nextTarget)) {
+                throw new Error(
+                  'Re-resolved fallback target does not match the captured route order.',
+                  { cause: error }
+                )
+              }
+              trigger = failure.failure.category
+              target = rerouted.decision.target
+              continue
             }
-            if (failure.action === 'user_review') {
-              await finalizeRun('blocked')
-              throw new RoutingUserReviewRequiredError(failure.failure.category, { cause: error })
-            }
-            if (failure.action !== 'retry_alternate' || !failure.nextTarget) {
-              await finalizeRun('failed')
-              throw error
-            }
-            excludedTargetIds.push(target.id)
-            const rerouted = await this.resolveRoute(input.workClass, {
-              projectId: input.projectId,
-              sessionOrAgentPin: input.sessionOrAgentPin,
-              excludedTargetIds: Object.freeze([...excludedTargetIds])
-            })
-            if (!rerouted || !modelTargetsEqual(rerouted.decision.target, failure.nextTarget)) {
-              throw new Error(
-                'Re-resolved fallback target does not match the persisted route order.',
-                { cause: error }
-              )
-            }
-            trigger = failure.failure.category
-            target = rerouted.decision.target
-            continue
           }
 
           await this.assertSideEffectWrite(active)
@@ -328,8 +419,8 @@ export class RoutedRunOrchestrator {
           await finalizeRun(result.cancelled ? 'cancelled' : 'completed')
           return result.value
         } finally {
-          if (this.activeAttempts.get(attemptKey(input.sessionId)) === active) {
-            this.activeAttempts.delete(attemptKey(input.sessionId))
+          if (this.activeAttempts.get(attemptId) === active) {
+            this.activeAttempts.delete(attemptId)
           }
         }
       }
@@ -339,18 +430,17 @@ export class RoutedRunOrchestrator {
     }
   }
 
-  markSideEffectsStarted(sessionId: string, promptMessageId?: string): void {
-    const active = this.activeAttempts.get(attemptKey(sessionId))
-    if (!active?.activated || active.sideEffectsStarted) return
-    if (promptMessageId && active.promptMessageId && promptMessageId !== active.promptMessageId)
-      return
-    active.sideEffectsStarted = true
-    active.sideEffectWrite = this.ledger.markSideEffectsStarted(active.attemptId).then(
+  markSideEffectsStarted(attemptId: string): void {
+    const active = this.activeAttempts.get(attemptId)
+    if (active?.sideEffectsStarted) return
+    if (active) active.sideEffectsStarted = true
+    const write = this.ledger.markSideEffectsStarted(attemptId).then(
       () => undefined,
       (error) => {
-        active.sideEffectError = error
+        if (active) active.sideEffectError = error
       }
     )
+    if (active) active.sideEffectWrite = write
   }
 
   private async assertSideEffectWrite(active: ActiveAttempt): Promise<void> {

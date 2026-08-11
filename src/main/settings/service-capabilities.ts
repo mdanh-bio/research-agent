@@ -9,6 +9,8 @@ export type AcpSettingsCapabilities = Pick<
   | 'captureActiveAgentBackendRoute'
   | 'resolveAgentBackend'
   | 'resolveRoutedAgentBackend'
+  | 'captureConfiguredRoutingContext'
+  | 'resolveCapturedConfiguredRoute'
   | 'resolveConfiguredRoute'
   | 'resolveRoutedAgentModelChangeTarget'
   | 'skillsNeedingForceLoad'
