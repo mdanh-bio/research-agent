@@ -2,6 +2,7 @@ import type { PackageMirror } from '../../../shared/mirror'
 import type { AppIconVariant, ReasoningEffort, SettingsSnapshot } from '../../../shared/settings'
 import type { CloseActionPreference } from '../../../shared/window-controls'
 import type { PermissionProfileId } from '../../../shared/permission-profiles'
+import type { RoutingProfileSelection, RoutingSettingsView } from '../../../shared/routing-settings'
 import { isMirrorConfigured } from '../pages/settings/mirror-view'
 import type {
   OptimisticSettingsWriteKey,
@@ -17,6 +18,7 @@ type SettingsPreferencesState = {
   closePreference: CloseActionPreference | undefined
   appIconVariant: AppIconVariant
   defaultPermissionProfile: PermissionProfileId
+  routing: RoutingSettingsView
 }
 
 type OptimisticPreferenceField =
@@ -34,6 +36,7 @@ export type SettingsPreferencesActions = {
   setClosePreference: (preference: CloseActionPreference | undefined) => Promise<void>
   setAppIconVariant: (variant: AppIconVariant) => Promise<void>
   setDefaultPermissionProfile: (profile: PermissionProfileId) => Promise<void>
+  setRoutingProfile: (profile: RoutingProfileSelection) => Promise<void>
   completeOnboarding: () => Promise<void>
   setPackageMirror: (mirror: PackageMirror) => Promise<void>
 }
@@ -46,6 +49,7 @@ type SettingsPreferencesCommands = Pick<
   | 'setClosePreference'
   | 'setAppIconVariant'
   | 'setDefaultPermissionProfile'
+  | 'setRouting'
   | 'markOnboardingComplete'
   | 'setPackageMirror'
 >
@@ -156,6 +160,19 @@ export const createSettingsPreferencesSlice = ({
         () => getCommands().setDefaultPermissionProfile({ profile }),
         'Failed to set default permission profile'
       ),
+
+    setRoutingProfile: async (profile) => {
+      const write = writeCoordinator.begin('routing')
+      try {
+        const snapshot = await getCommands().setRouting({ profile })
+        if (!write.isCurrent()) return
+        reconcileSnapshot(snapshot)
+        write.succeed()
+      } catch (error) {
+        write.fail('Could not save the routing profile. Try again.')
+        console.error('Failed to set routing profile', error)
+      }
+    },
 
     completeOnboarding: async () => {
       reconcileSnapshot(await getCommands().markOnboardingComplete())

@@ -12,6 +12,7 @@ import type {
 } from './reasoning-effort'
 import type { PackageMirror } from './mirror'
 import type { CloseActionPreference } from './window-controls'
+import type { RoutingSettingsView, SetRoutingSettingsRequest } from './routing-settings'
 
 // Settings file schema version; bumped when the on-disk shape changes. v2 adds official-vendor
 // providers (vendorId/region) and a per-selection activeModel alongside activeProviderId.
@@ -402,7 +403,11 @@ export type SettingsSnapshot = {
   // The default permission profile for new sessions. Valid values: 'ask', 'auto', 'full'.
   // Absent or invalid falls back to 'ask' (the most restrictive mode).
   defaultPermissionProfile?: PermissionProfileId
+  // Explicitly opt-in transparent-routing state plus renderer-safe effective targets.
+  routing?: RoutingSettingsView
 }
+
+export type { SetRoutingSettingsRequest }
 
 // Request to set (or clear, via omitted fields) the package-mirror configuration.
 export type SetPackageMirrorRequest = PackageMirror

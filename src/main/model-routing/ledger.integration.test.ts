@@ -227,6 +227,50 @@ describe('ModelRoutingLedger', () => {
     await expect(ledger.finishAgentRun(run.agentRunId, 'running')).rejects.toThrow('non-terminal')
   })
 
+  it('finalizes a pre-dispatch reservation without claiming it ran and permits eligible fallback', async () => {
+    const alternate = { ...target, id: 'alternate-reserved', model: 'model-b' }
+    const fallbackPolicy = { ...policy, fallbacks: [alternate] }
+    const fallbackDecision = { ...decision, eligibleAlternates: [alternate] }
+    const ledger = await setup()
+    const run = await ledger.beginAgentRun({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      role: 'analyst',
+      routeDecision: fallbackDecision,
+      effectivePolicy: fallbackPolicy,
+      status: 'running'
+    })
+    const initial = await ledger.beginModelAttempt({
+      agentRunId: run.agentRunId,
+      trigger: 'initial',
+      target,
+      request
+    })
+
+    await ledger.finishReservedModelAttempt(initial, {
+      result: 'failure',
+      failureCategory: 'provider_unavailable',
+      latencyMs: 8
+    })
+    const fallback = await ledger.beginModelAttempt({
+      agentRunId: run.agentRunId,
+      trigger: 'provider_unavailable',
+      target: alternate,
+      request
+    })
+
+    await expect(
+      client!.modelAttempt.findMany({
+        where: { agentRunId: run.agentRunId },
+        orderBy: { sequence: 'asc' }
+      })
+    ).resolves.toMatchObject([
+      { id: initial, result: 'failure', failureCategory: 'provider_unavailable', latencyMs: 8 },
+      { id: fallback, result: 'reserved', failureCategory: null }
+    ])
+    await expect(ledger.activateModelAttempt(initial)).rejects.toThrow('active reservation')
+  })
+
   it('reserves alternates from the persisted decision and requires unchanged, effect-free failures', async () => {
     const alternate = { ...target, id: 'alternate', model: 'model-b' }
     const fallbackPolicy = { ...policy, fallbacks: [alternate] }

@@ -13,7 +13,7 @@ export type RoutingProfileFoundationDefinition = Readonly<{
 
 // This is intentionally a renderer-safe, secret-free description of the shipped design presets.
 // It is also the single source used by the main-process policy factory, so the settings table cannot
-// drift from the policies that a future orchestrator may explicitly persist and apply.
+// drift from the policies the routed-run orchestrator persists and applies after explicit opt-in.
 export const ROUTING_PROFILE_FOUNDATION_DEFINITIONS: readonly RoutingProfileFoundationDefinition[] =
   Object.freeze([
     Object.freeze({
@@ -72,12 +72,3 @@ export const ROUTING_PROFILE_FOUNDATION_DEFINITIONS: readonly RoutingProfileFoun
       })
     })
   ])
-
-// There is no settings-owned persisted policy or production conversation integration yet. Keep the
-// renderer fail-closed until both exist; a future live status must come from authoritative runtime
-// evidence rather than changing this shipped-foundation descriptor.
-export const ROUTING_PROFILE_FOUNDATION_STATUS = Object.freeze({
-  state: 'foundation_not_active' as const,
-  persistedPolicy: false as const,
-  appliedToRuntime: false as const
-})

@@ -333,7 +333,7 @@ export const RENDERER_CONTRACT_GROUPS = Object.freeze([
     ['setConnectorAutoAllow', 'settings:set-connector-auto-allow'], ['setConnectorEnabled', 'settings:set-connector-enabled'],
     ['setConversationSkillImportEnabled', 'settings:set-conversation-skill-import-enabled'], ['setCustomServerEnabled', 'settings:set-custom-server-enabled'],
     ['setNcbiCredentials', 'settings:set-ncbi-credentials'], ['setNotificationsEnabled', 'settings:set-notifications-enabled', LOCAL],
-    ['setPackageMirror', 'settings:set-package-mirror', LOCAL], ['setReasoningEffort', 'settings:set-reasoning-effort'],
+    ['setPackageMirror', 'settings:set-package-mirror', LOCAL], ['setReasoningEffort', 'settings:set-reasoning-effort'], ['setRouting', 'settings:set-routing'],
     ['setSkillEnabled', 'settings:set-skill-enabled'], ['setToolPermission', 'settings:set-tool-permission'],
     ['uninstallClaude', 'settings:uninstall-claude', LOCAL], ['uninstallCodex', 'settings:uninstall-codex', LOCAL],
     ['uninstallOpencode', 'settings:uninstall-opencode', LOCAL], ['updateCustomServer', 'settings:update-custom-server'],

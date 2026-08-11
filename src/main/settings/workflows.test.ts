@@ -72,6 +72,7 @@ const fakeStore = () => {
     setActiveProvider: vi.fn().mockResolvedValue(snapshot()),
     setAgentFramework: vi.fn().mockResolvedValue(snapshot()),
     setReasoningEffort: vi.fn().mockResolvedValue(snapshot()),
+    setRoutingProfile: vi.fn().mockResolvedValue(snapshot()),
     resolveActiveReasoningEffort: vi.fn().mockResolvedValue('high'),
     resolveActiveModelChangeTarget: vi.fn().mockResolvedValue(undefined),
     setConversationSkillImportEnabled: vi.fn().mockResolvedValue(snapshot()),
@@ -393,6 +394,24 @@ describe('SettingsWorkflows runtime effects', () => {
       'live apply failed'
     )
     expect(requestProviderReconnect).not.toHaveBeenCalled()
+  })
+
+  it('persists an explicit routing profile before rotating the runtime generation', async () => {
+    const calls: string[] = []
+    const { store, capability } = fakeStore()
+    store.setRoutingProfile.mockImplementation(async () => {
+      calls.push('persist')
+      return snapshot()
+    })
+    const workflows = createSettingsWorkflows(
+      capability,
+      testEffects({ requestAgentFrameworkSwitch: () => calls.push('rotate') })
+    ).runtime
+
+    await workflows.setRoutingSettings({ profile: 'balanced' })
+
+    expect(store.setRoutingProfile).toHaveBeenCalledWith('balanced')
+    expect(calls).toEqual(['persist', 'rotate'])
   })
 })
 

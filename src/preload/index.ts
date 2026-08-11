@@ -185,6 +185,7 @@ const api: OpenScienceAPI = {
       electronRendererContracts.invoke('settings.setAgentFramework', request),
     setReasoningEffort: (request) =>
       electronRendererContracts.invoke('settings.setReasoningEffort', request),
+    setRouting: (request) => electronRendererContracts.invoke('settings.setRouting', request),
     setNotificationsEnabled: (request) =>
       electronRendererContracts.invoke('settings.setNotificationsEnabled', request),
     setConversationSkillImportEnabled: (request) =>

@@ -6,7 +6,11 @@ import type { SettingsService } from './service'
 export type AcpSettingsCapabilities = Pick<
   SettingsService,
   | 'captureActiveAgentBackendSelection'
+  | 'captureActiveAgentBackendRoute'
   | 'resolveAgentBackend'
+  | 'resolveRoutedAgentBackend'
+  | 'resolveConfiguredRoute'
+  | 'resolveRoutedAgentModelChangeTarget'
   | 'skillsNeedingForceLoad'
   | 'skillNudgeNamesForIds'
   | 'codexSkillDescriptorsForIds'

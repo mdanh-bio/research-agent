@@ -203,6 +203,7 @@ export const WEB_INVOKE_CHANNELS = {
   'settings.setNotificationsEnabled': 'settings:set-notifications-enabled',
   'settings.setPackageMirror': 'settings:set-package-mirror',
   'settings.setReasoningEffort': 'settings:set-reasoning-effort',
+  'settings.setRouting': 'settings:set-routing',
   'settings.setSkillEnabled': 'settings:set-skill-enabled',
   'settings.setToolPermission': 'settings:set-tool-permission',
   'settings.uninstallClaude': 'settings:uninstall-claude',

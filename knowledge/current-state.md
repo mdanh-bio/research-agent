@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-08-10.
+Last reviewed: 2026-08-11.
 
 ## Verified baseline
 
@@ -46,6 +46,13 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   the persisted decision, and uses reserve/activate attempt states so late recorded side effects can
   invalidate a fallback reservation. Benign-refusal fallback fails closed without scope-bound,
   single-use approval evidence and a configured approval verifier.
+- An opt-in transparent-routing path now connects configured model targets, persisted
+  Research Max/Balanced/Economy selection, policy precedence, the ACP prompt lifecycle, provider
+  model switching, attempt reservation/activation/finalization, bounded availability fallback, and
+  the local routing ledger. Routing is absent/off by default. Settings shows concrete effective
+  provider/model/reasoning/boundary/source choices, labels the preview as the user default, and keeps
+  external telemetry/export off and unavailable. Routed attachment replay requires immutable SHA-256
+  identities; user cancellation and tool-side-effect guards stop automatic fallback fail closed.
 - A direct Codex app-server JSONL client and process adapter for stable thread/turn operations,
   read-only side-question forks, steering, interruption, and replacement. Experimental APIs,
   arbitrary RPC, shell-command access, full-access sandboxing, approval bypasses, unsafe CLI flags,
@@ -79,10 +86,11 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
 
 ## Verification status
 
-- On 2026-08-10, the final full Vitest suite passed: 898 files passed and 14 skipped; 12,944 tests
-  passed and 190 skipped, with zero failures. Node and renderer typechecks, Prisma validation/client
-  generation, generated web API-map validation, CLI package inspection, private-package guards,
-  workflow-policy tests, Claude ACP patch-integrity validation, and the production build also passed.
+- On 2026-08-11, the Phase B acceptance run used the pinned Node `v22.23.2` and npm `10.9.8`.
+  The full Vitest suite passed: 904 files passed and 14 skipped; 12,986 tests passed and 190 skipped,
+  with zero failures. Node and renderer typechecks, generated web API-map validation, CLI tests
+  (37/37), private-package guards (10/10), Claude ACP patch-integrity validation, and the production
+  Electron/renderer/Web build also passed.
 - ESLint has no errors and 13 inherited warnings. Every changed or new supported file passes
   Prettier and `git diff --check`.
 - The signed Electron journey passed four macOS-app tests; two Windows-only cases were skipped.
@@ -95,10 +103,16 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
 
 ## Not yet connected or live-verified
 
-- A resolved target has an explicit bridge into `AgentBackendResolver`, and Settings shows a
-  read-only profile-mapping panel labeled **Foundation / not active**. Policy/model-tier persistence,
-  orchestrator selection, ledger lifecycle events, and live provider routing are not connected. No
-  automatic fallback is active in production.
+- Transparent routing is locally integrated and deterministically tested, but no real provider
+  request or provider-to-provider fallback has been executed in this phase, and no packaged-app
+  routing journey was run. Loopback URL shape is not proof of local inference: custom endpoints remain
+  `any_configured`, and `local_only` work fails closed until a genuinely declared local target exists.
+  The current catalog treats framework-compatible configured providers as tool-capable; there is no
+  separate per-model tool-support declaration yet.
+- Sanitized user/project work-class overrides are persisted and resolved, but Settings has no
+  override editor and its table is deliberately a user-default preview rather than an active-project
+  view. Session/agent pins remain an internal policy seam. Benign-refusal results stop for review
+  because no production approval issuer/verifier is connected; no refusal bypass is active.
 - The Codex app-server adapter and delivery-mode contract are not connected to composer IPC or the
   existing ACP session lifecycle. Durable OpenCode steering queues and the bounded agent graph remain
   planned.

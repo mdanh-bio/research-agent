@@ -43,6 +43,7 @@ import {
   type SetConversationSkillImportEnabledRequest,
   type SetNotificationsEnabledRequest,
   type SetReasoningEffortRequest,
+  type SetRoutingSettingsRequest,
   type SetSkillEnabledRequest,
   type SetToolPermissionRequest,
   type UpdateSkillRequest,
@@ -62,7 +63,8 @@ import {
   readConversationSkillImportEnabled,
   readIsolatedClaudeToken,
   readNotificationsEnabled,
-  readReasoningEffort
+  readReasoningEffort,
+  readRoutingProfile
 } from './transport-validation'
 
 const log = createLogger('settings-ipc')
@@ -157,6 +159,11 @@ const registerSettingsIpcHandlers = ({
       return workflows.runtime.setReasoningEffort({ effort })
     }
   )
+  ipcMainHandle('settings:set-routing', async (_event, request: SetRoutingSettingsRequest) => {
+    const profile = readRoutingProfile(request)
+    log.info('set routing profile requested', { profile })
+    return workflows.runtime.setRoutingSettings({ profile })
+  })
   ipcMainHandle(
     'settings:set-notifications-enabled',
     async (_event, request: SetNotificationsEnabledRequest) => {

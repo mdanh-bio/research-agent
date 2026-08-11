@@ -201,6 +201,7 @@ import type {
   SetDefaultPermissionProfileRequest,
   SetAppIconVariantRequest,
   SetReasoningEffortRequest,
+  SetRoutingSettingsRequest,
   SetSkillEnabledRequest,
   SettingsSnapshot,
   AppIconPreview,
@@ -409,6 +410,7 @@ export interface OpenScienceAPI {
     setActiveProvider(request: SetActiveProviderRequest): Promise<SettingsSnapshot>
     setAgentFramework(request: SetAgentFrameworkRequest): Promise<SettingsSnapshot>
     setReasoningEffort(request: SetReasoningEffortRequest): Promise<SettingsSnapshot>
+    setRouting(request: SetRoutingSettingsRequest): Promise<SettingsSnapshot>
     setNotificationsEnabled(request: SetNotificationsEnabledRequest): Promise<SettingsSnapshot>
     setConversationSkillImportEnabled(
       request: SetConversationSkillImportEnabledRequest

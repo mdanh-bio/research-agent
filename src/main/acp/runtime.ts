@@ -127,6 +127,9 @@ export type AcpRuntimeCallbacks = {
   onPermissionRequest?: (request: AcpPermissionRequest) => void
   onPermissionSettled?: (requestId: string, state: AcpPermissionSettlementState) => void
   onPromptStarted?: (sessionId: string, turnToken: string, promptAttemptId?: string) => void
+  // Runs after prompt preparation and the final cancellation checkpoint, immediately before the
+  // provider executor calls session.prompt(). Transparent routing activates its reserved attempt here.
+  onBeforeProviderPromptDispatch?: (sessionId: string, promptAttemptId?: string) => Promise<void>
   // Fires after the provider prompt yields its first update/terminal response. Reaching this point
   // proves startup did not reject before the provider accepted the request.
   onProviderPromptAccepted?: (sessionId: string, promptAttemptId?: string) => void

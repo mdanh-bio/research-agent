@@ -20,6 +20,7 @@ import {
   type RequestIdentityInput
 } from './fallback-policy'
 import { MAX_AUTOMATIC_ALTERNATES } from './policy-planner'
+import { assertSecretFreeRoutingValue } from './secret-safety'
 
 type RoutingLedgerClientProvider = () => Promise<PrismaClient>
 
@@ -59,6 +60,12 @@ type FinishModelAttemptInput = Readonly<{
   inputTokens?: number
   outputTokens?: number
   costUsd?: number
+}>
+
+type FinishReservedModelAttemptInput = Readonly<{
+  result: 'failure' | 'cancelled'
+  failureCategory?: ModelFailureCategory
+  latencyMs?: number
 }>
 
 type LinkRuntimeThreadInput = Readonly<{
@@ -123,32 +130,39 @@ const canonicalize = (value: unknown): unknown => {
   )
 }
 
-export const canonicalRoutingPolicyJson = (policy: ModelRoutePolicy): string =>
-  JSON.stringify(canonicalize(policy))
+export const canonicalRoutingPolicyJson = (policy: ModelRoutePolicy): string => {
+  assertSecretFreeRoutingValue(policy)
+  return JSON.stringify(canonicalize(policy))
+}
 
 export const canonicalRoutingSnapshotJson = (
   policy: ModelRoutePolicy,
   decision: RouteDecision
-): string =>
-  JSON.stringify(
+): string => {
+  const document = {
+    schemaVersion: 2,
+    policy,
+    decision: {
+      workClass: decision.workClass,
+      policyId: decision.policyId,
+      policyVersion: decision.policyVersion,
+      policySource: decision.policySource,
+      target: decision.target,
+      eligibleAlternates: decision.eligibleAlternates,
+      requiredCapabilities: decision.requiredCapabilities,
+      dataBoundary: decision.dataBoundary,
+      budget: decision.budget,
+      selectionReason: decision.selectionReason,
+      rejectedAlternatives: decision.rejectedAlternatives
+    }
+  } satisfies RoutingSnapshotDocument
+  assertSecretFreeRoutingValue(document)
+  return JSON.stringify(
     canonicalize({
-      schemaVersion: 2,
-      policy,
-      decision: {
-        workClass: decision.workClass,
-        policyId: decision.policyId,
-        policyVersion: decision.policyVersion,
-        policySource: decision.policySource,
-        target: decision.target,
-        eligibleAlternates: decision.eligibleAlternates,
-        requiredCapabilities: decision.requiredCapabilities,
-        dataBoundary: decision.dataBoundary,
-        budget: decision.budget,
-        selectionReason: decision.selectionReason,
-        rejectedAlternatives: decision.rejectedAlternatives
-      }
-    } satisfies RoutingSnapshotDocument)
+      ...document
+    })
   )
+}
 
 export const routingPolicyHash = (policyJson: string): string =>
   `sha256:${createHash('sha256').update(policyJson).digest('hex')}`
@@ -376,6 +390,10 @@ export class ModelRoutingLedger {
   // Reserves a ledger slot but does not authorize provider dispatch. Call activateModelAttempt only
   // immediately before dispatch; a late side-effect notification atomically invalidates the slot.
   async beginModelAttempt(input: BeginModelAttemptInput): Promise<string> {
+    assertSecretFreeRoutingValue(input.target)
+    if (input.benignRefusalApproval) {
+      assertSecretFreeRoutingValue(input.benignRefusalApproval)
+    }
     const requestHash = computeRequestIdentity(input.request)
     const attemptId = this.idFactory()
     const startedAt = this.now()
@@ -564,6 +582,39 @@ export class ModelRoutingLedger {
     })
     if (!activated) {
       throw new Error('Fallback reservation was invalidated by prior model side effects.')
+    }
+  }
+
+  // A target can become unavailable, prompt preparation can fail, or the user can cancel before the
+  // provider boundary. Preserve that reserved lifecycle without falsely claiming the model ran.
+  async finishReservedModelAttempt(
+    attemptId: string,
+    input: FinishReservedModelAttemptInput
+  ): Promise<void> {
+    if (input.result === 'failure' && !input.failureCategory) {
+      throw new Error('A failed reserved model attempt requires a failure category.')
+    }
+    if (input.result === 'cancelled' && input.failureCategory) {
+      throw new Error('A cancelled reserved model attempt cannot record a failure category.')
+    }
+    assertNonNegativeInteger(input.latencyMs, 'latencyMs')
+    const client = await this.getClient()
+    const changed = await client.modelAttempt.updateMany({
+      where: { id: attemptId, finishedAt: null, result: 'reserved' },
+      data: {
+        result: input.result,
+        failureCategory: input.failureCategory,
+        latencyMs: input.latencyMs,
+        finishedAt: this.now()
+      }
+    })
+    if (changed.count !== 1) {
+      const exists = await client.modelAttempt.count({ where: { id: attemptId } })
+      throw new Error(
+        exists === 0
+          ? `Unknown model attempt: ${attemptId}`
+          : `Model attempt ${attemptId} is not an active reservation.`
+      )
     }
   }
 

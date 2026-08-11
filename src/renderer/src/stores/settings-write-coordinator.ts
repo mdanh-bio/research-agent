@@ -2,6 +2,7 @@ export type SettingsWriteKey =
   | 'activeProvider'
   | 'agentFramework'
   | 'reasoningEffort'
+  | 'routing'
   | 'notifications'
   | 'conversationSkillImport'
   | 'closePreference'

@@ -28,6 +28,20 @@ import {
   isReasoningEffort
 } from '../../shared/settings'
 import { isOfficialVendorId } from '../../shared/provider-registry'
+import {
+  DATA_BOUNDARIES,
+  MODEL_CAPABILITIES,
+  WORK_CLASSES,
+  type RouteBudget
+} from '../../shared/model-routing'
+import {
+  DEFAULT_ROUTING_SETTINGS,
+  isRoutingProfileSelection,
+  type RoutingPolicyOverride,
+  type RoutingPolicyOverrides,
+  type RoutingSettings
+} from '../../shared/routing-settings'
+import { assertSecretFreeRoutingValue } from '../model-routing/secret-safety'
 import { isPermissionProfileId, type PermissionProfileId } from '../../shared/permission-profiles'
 import {
   isCustomReasoningEffortTransport,
@@ -401,6 +415,120 @@ export const sanitizePackageMirror = (value: unknown): PackageMirror | undefined
   return Object.keys(result).length > 0 ? result : undefined
 }
 
+const asRoutingTargetId = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const targetId = value.trim()
+  return targetId && targetId.length <= 512 ? targetId : undefined
+}
+
+const sanitizeRoutingBudget = (value: unknown): RouteBudget | undefined => {
+  if (!isRecord(value)) return undefined
+  const budget: Record<string, number> = {}
+  for (const field of ['maxInputTokens', 'maxOutputTokens', 'maxLatencyMs'] as const) {
+    const candidate = value[field]
+    if (candidate !== undefined) {
+      if (!Number.isSafeInteger(candidate) || (candidate as number) < 0) return undefined
+      budget[field] = candidate as number
+    }
+  }
+  const maxCostUsd = value.maxCostUsd
+  if (maxCostUsd !== undefined) {
+    if (typeof maxCostUsd !== 'number' || !Number.isFinite(maxCostUsd) || maxCostUsd < 0) {
+      return undefined
+    }
+    budget.maxCostUsd = maxCostUsd
+  }
+  return Object.keys(budget).length > 0 ? budget : undefined
+}
+
+const sanitizeRoutingOverride = (value: unknown): RoutingPolicyOverride | undefined => {
+  if (!isRecord(value)) return undefined
+  const primaryTargetId = asRoutingTargetId(value.primaryTargetId)
+  if (!primaryTargetId) return undefined
+  const fallbackTargetIds = Array.isArray(value.fallbackTargetIds)
+    ? [
+        ...new Set(
+          value.fallbackTargetIds
+            .map(asRoutingTargetId)
+            .filter((entry): entry is string => Boolean(entry))
+        )
+      ]
+        .filter((entry) => entry !== primaryTargetId)
+        .slice(0, 2)
+    : []
+  const requiredCapabilities = Array.isArray(value.requiredCapabilities)
+    ? [
+        ...new Set(
+          value.requiredCapabilities.filter(
+            (entry): entry is (typeof MODEL_CAPABILITIES)[number] =>
+              typeof entry === 'string' && (MODEL_CAPABILITIES as readonly string[]).includes(entry)
+          )
+        )
+      ]
+    : []
+  const dataBoundary =
+    typeof value.dataBoundary === 'string' &&
+    (DATA_BOUNDARIES as readonly string[]).includes(value.dataBoundary)
+      ? (value.dataBoundary as (typeof DATA_BOUNDARIES)[number])
+      : undefined
+  const budget = sanitizeRoutingBudget(value.budget)
+
+  return Object.freeze({
+    primaryTargetId,
+    ...(fallbackTargetIds.length > 0
+      ? { fallbackTargetIds: Object.freeze(fallbackTargetIds) }
+      : {}),
+    ...(requiredCapabilities.length > 0
+      ? { requiredCapabilities: Object.freeze(requiredCapabilities) }
+      : {}),
+    ...(dataBoundary ? { dataBoundary } : {}),
+    ...(budget ? { budget: Object.freeze(budget) } : {})
+  })
+}
+
+const sanitizeRoutingOverrides = (value: unknown): RoutingPolicyOverrides | undefined => {
+  if (!isRecord(value)) return undefined
+  const overrides: Partial<Record<(typeof WORK_CLASSES)[number], RoutingPolicyOverride>> = {}
+  for (const workClass of WORK_CLASSES) {
+    const override = sanitizeRoutingOverride(value[workClass])
+    if (override) overrides[workClass] = override
+  }
+  return Object.keys(overrides).length > 0 ? Object.freeze(overrides) : undefined
+}
+
+export const sanitizeRoutingSettings = (value: unknown): RoutingSettings => {
+  if (!isRecord(value)) return DEFAULT_ROUTING_SETTINGS
+  const profile = isRoutingProfileSelection(value.profile) ? value.profile : 'off'
+  const userOverrides = sanitizeRoutingOverrides(value.userOverrides)
+  const projectOverrides = Object.create(null) as Record<string, RoutingPolicyOverrides>
+  if (isRecord(value.projectOverrides)) {
+    for (const [rawProjectId, rawOverrides] of Object.entries(value.projectOverrides)) {
+      const projectId = rawProjectId.trim()
+      if (!projectId || projectId.length > 256) continue
+      const overrides = sanitizeRoutingOverrides(rawOverrides)
+      if (overrides) projectOverrides[projectId] = overrides
+    }
+  }
+  const routing = Object.freeze({
+    profile,
+    // M1 has no external exporter. A hand-edited true value must not activate an inert or
+    // undocumented transmission path.
+    telemetryEnabled: false,
+    ...(userOverrides ? { userOverrides } : {}),
+    ...(Object.keys(projectOverrides).length > 0
+      ? { projectOverrides: Object.freeze(projectOverrides) }
+      : {})
+  })
+  try {
+    assertSecretFreeRoutingValue(routing)
+    return routing
+  } catch {
+    // A recognized routing field containing credential-like material is never copied forward into
+    // settings.json. Preserve the explicit profile choice, but discard every unsafe override.
+    return Object.freeze({ profile, telemetryEnabled: false })
+  }
+}
+
 // Rebuilds the whole settings document, keeping activeProviderId only when it points at a provider.
 const sanitizeSettings = (value: unknown): StoredSettings => {
   if (!isRecord(value)) return createEmptySettings()
@@ -594,6 +722,15 @@ const sanitizeSettings = (value: unknown): StoredSettings => {
 
   if (isPermissionProfileId(defaultPermissionProfile)) {
     settings.defaultPermissionProfile = defaultPermissionProfile
+  }
+
+  const routing = sanitizeRoutingSettings(value.routing)
+  if (
+    routing.profile !== DEFAULT_ROUTING_SETTINGS.profile ||
+    routing.userOverrides ||
+    routing.projectOverrides
+  ) {
+    settings.routing = routing
   }
 
   const opencodePath = asString(value.opencodePath)
@@ -959,6 +1096,17 @@ class SettingsRepository {
   // Persists the reasoning-effort preference; applied to sessions created after the next reconnect.
   async setReasoningEffort(effort: ReasoningEffort): Promise<StoredSettings> {
     return this.mutate((settings) => ({ ...settings, reasoningEffort: effort }))
+  }
+
+  // Routing remains default-off. Changing the profile preserves any main-process-owned overrides.
+  async setRoutingProfile(profile: RoutingSettings['profile']): Promise<StoredSettings> {
+    return this.mutate((settings) => ({
+      ...settings,
+      routing: sanitizeRoutingSettings({
+        ...(settings.routing ?? DEFAULT_ROUTING_SETTINGS),
+        profile
+      })
+    }))
   }
 
   // Persists the desktop-notification preference; read fresh at notification time so it applies

@@ -395,16 +395,16 @@ describe('SettingsPage layout', () => {
     expect(addRow?.className).toContain('border-dashed')
   })
 
-  it('opens the explicitly inactive routing foundation from Workspace navigation', async () => {
+  it('opens the default-off routing control from Workspace navigation', async () => {
     await act(async () => root.render(<SettingsPage open onClose={vi.fn()} />))
     await act(async () => navButton('Routing')?.click())
 
     expect(document.body.querySelector('h2:not(.sr-only)')?.textContent).toBe('Routing')
     expect(
       document.body.querySelector('[data-routing-status]')?.getAttribute('data-routing-status')
-    ).toBe('foundation_not_active')
-    expect(document.body.textContent).toContain('Foundation / not active')
-    expect(document.body.querySelector('[aria-label="Shipped profile mappings"]')).not.toBeNull()
+    ).toBe('off')
+    expect(document.body.textContent).toContain('Current sessions use Model and Agent settings')
+    expect(document.body.querySelector('[aria-label="Shipped profile intent"]')).not.toBeNull()
   })
 
   it('opens the Permissions panel from Workspace navigation', async () => {

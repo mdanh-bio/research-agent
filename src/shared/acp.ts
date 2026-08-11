@@ -3,6 +3,7 @@ import type { ArtifactFile, FileReference } from './artifacts'
 import type { UploadedAttachment } from './uploads'
 import type { PermissionProfileId, SessionPermissionProfileState } from './permission-profiles'
 import type { AgentFrameworkId } from './settings'
+import type { WorkClass } from './model-routing'
 import type {
   ElicitationProjection,
   ElicitationResponse as BaseElicitationResponse,
@@ -569,6 +570,9 @@ export type AcpSetPermissionProfileRequest = {
 export type AcpPromptRequest = {
   sessionId: string
   text: string
+  // App-owned work classification for transparent routing. Ordinary composer prompts default to
+  // analysis; internal title/summary/review owners may provide their exact class.
+  workClass?: WorkClass
   // Closed, application-owned behavior requested for this Conversation Turn only.
   turnIntent?: 'plan-first'
   // Explicit, immutable identity for a Plan-bound interaction. Main validates it before admitting

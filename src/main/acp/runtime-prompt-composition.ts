@@ -194,6 +194,7 @@ const composeAcpRuntimePromptOwners = (
         session.contextUsagePolicy.resolve(sessionId).selectedWindow,
       emitSkillActivities,
       onSkillImportAttachmentEligible: callbacks.onSkillImportAttachmentEligible,
+      onBeforeProviderPromptDispatch: callbacks.onBeforeProviderPromptDispatch,
       onProviderPromptAccepted: callbacks.onProviderPromptAccepted,
       routeNotification: (notification, sessionId) =>
         session.sessionUpdateProjector.route(notification, { appSessionId: sessionId }),
