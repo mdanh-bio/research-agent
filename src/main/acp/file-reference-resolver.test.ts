@@ -80,26 +80,62 @@ describe('managed file reference resolver', () => {
     )
     const resolver = createManagedFileReferenceResolver({ uploads })
 
+    const reference = {
+      id: attachment.id,
+      name: attachment.originalName,
+      path: createUploadVersionReference(attachment.versionId ?? '', {
+        projectId: 'project-1',
+        sessionId: 'source-session'
+      }),
+      source: 'upload' as const,
+      mimeType: attachment.mimeType,
+      versionId: attachment.versionId
+    }
     await expect(
-      resolver.resolve(
-        { projectId: 'project-1', sessionId: 'target-session' },
-        {
-          id: attachment.id,
-          name: attachment.originalName,
-          path: createUploadVersionReference(attachment.versionId ?? '', {
-            projectId: 'project-1',
-            sessionId: 'source-session'
-          }),
-          source: 'upload',
-          mimeType: attachment.mimeType
-        }
-      )
+      resolver.resolve({ projectId: 'project-1', sessionId: 'target-session' }, reference)
     ).resolves.toMatchObject({
       absolutePath: attachment.path,
       name: 'shared.csv',
       mimeType: 'text/csv',
       allowSkillImportReference: true
     })
+    await expect(
+      resolver.resolveImmutable({ projectId: 'project-1', sessionId: 'target-session' }, reference)
+    ).resolves.toMatchObject({
+      versionId: attachment.versionId,
+      name: 'shared.csv',
+      sizeBytes: 'id,value\n1,2\n'.length,
+      sha256: `sha256:${attachment.checksum}`
+    })
+  })
+
+  it('rejects a legacy file path before a routed run can bind its identity', async () => {
+    root = await mkdtemp(join(tmpdir(), 'file-reference-resolver-'))
+    const uploads = new UploadRepository(root)
+    const [pending] = await stageUploadFixtures(uploads, {
+      files: [
+        {
+          name: 'legacy.csv',
+          mimeType: 'text/csv',
+          content: Buffer.from('id\n1\n').toString('base64')
+        }
+      ]
+    })
+    const [attachment] = await uploads.finalizePendingSessionUploads('session-1', [pending])
+    const resolver = createManagedFileReferenceResolver({ uploads })
+
+    await expect(
+      resolver.resolveImmutable(
+        { projectId: 'default-project', sessionId: 'session-1' },
+        {
+          id: attachment.id,
+          name: attachment.originalName,
+          path: attachment.path,
+          source: 'upload',
+          mimeType: attachment.mimeType
+        }
+      )
+    ).rejects.toThrow(/immutable Version reference/i)
   })
 
   it('rejects an explicitly referenced Upload Version from another Project', async () => {

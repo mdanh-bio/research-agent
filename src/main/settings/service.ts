@@ -114,10 +114,14 @@ import type { SystemProxyEnvironment } from './system-proxy'
 import { type ClaudeIsolatedAuthControllerPort } from './claude-isolated-auth'
 import { type ClaudeSharedAuthControllerPort } from './claude-shared-auth'
 import {
+  captureConfiguredRoutingContext,
   createRoutingSettingsView,
+  resolveCapturedConfiguredRoute,
   resolveConfiguredRoute,
+  type ConfiguredRoutingContext,
   type ConfiguredRouteResolution
 } from '../model-routing/configured-policy'
+import type { RouteRequest } from '../model-routing/policy-planner'
 
 // Outcome of uninstalling a managed runtime. `activeBackendAffected` is true only when the removed
 // runtime backed the active framework, so the IPC layer reconnects the agent for that case alone —
@@ -455,6 +459,32 @@ class SettingsService {
         sessionOrAgentPin: options.sessionOrAgentPin
       }
     )
+  }
+
+  // Captures the secret-free configured policy/catalog once for a routed turn.  Prompt preparation
+  // can then resolve requirements and alternates without rereading mutable Settings.
+  async captureConfiguredRoutingContext(
+    options: Readonly<{
+      projectId?: string
+      sessionOrAgentPin?: ModelRoutePolicy
+    }> = {}
+  ): Promise<ConfiguredRoutingContext | undefined> {
+    const settings = await this.migrateLegacyKeyRefs(await this.repository.getSettings())
+    const routing = settings.routing ?? DEFAULT_ROUTING_SETTINGS
+    if (routing.profile === 'off') return undefined
+    return captureConfiguredRoutingContext({
+      settings: this.toSettingsView(settings),
+      routing,
+      projectId: options.projectId,
+      sessionOrAgentPin: options.sessionOrAgentPin
+    })
+  }
+
+  resolveCapturedConfiguredRoute(
+    context: ConfiguredRoutingContext,
+    request: RouteRequest
+  ): ConfiguredRouteResolution {
+    return resolveCapturedConfiguredRoute(request, context)
   }
 
   async captureActiveAgentBackendRoute(

@@ -27,6 +27,14 @@ export type ConfiguredRouteResolution = Readonly<{
   layers: RoutePolicyLayers
 }>
 
+// A run captures this once before it materializes prompt inputs.  Later alternate selection is pure
+// against the captured policy/catalog snapshot, so a settings update cannot silently change the
+// target order for an in-flight request.
+export type ConfiguredRoutingContext = Readonly<{
+  profile: RoutingProfile
+  layers: RoutePolicyLayers
+}>
+
 type ConfiguredPolicyInput = Readonly<{
   settings: Pick<
     SettingsSnapshot,
@@ -142,7 +150,21 @@ export const resolveConfiguredRoute = (
   request: RouteRequest,
   input: ConfiguredPolicyInput
 ): ConfiguredRouteResolution => {
+  return resolveCapturedConfiguredRoute(request, captureConfiguredRoutingContext(input))
+}
+
+export const captureConfiguredRoutingContext = (
+  input: ConfiguredPolicyInput
+): ConfiguredRoutingContext => {
   const { profile, layers } = configuredLayers(input)
+  return Object.freeze({ profile, layers })
+}
+
+export const resolveCapturedConfiguredRoute = (
+  request: RouteRequest,
+  context: ConfiguredRoutingContext
+): ConfiguredRouteResolution => {
+  const { profile, layers } = context
   const decision = resolveRouteDecision(request, layers)
   const effectivePolicy = effectivePolicyFor(decision, layers)
   assertSecretFreeRoutingValue({ decision, effectivePolicy })

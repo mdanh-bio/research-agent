@@ -161,6 +161,8 @@ const registerWithFakes = (overrides?: {
       captureActiveAgentBackendRoute: vi.fn().mockResolvedValue({ kind: 'legacy', selection: {} }),
       resolveAgentBackend: vi.fn().mockResolvedValue({}),
       resolveRoutedAgentBackend: vi.fn().mockResolvedValue({}),
+      captureConfiguredRoutingContext: vi.fn().mockResolvedValue(undefined),
+      resolveCapturedConfiguredRoute: vi.fn(),
       resolveConfiguredRoute: vi.fn().mockResolvedValue(undefined),
       resolveRoutedAgentModelChangeTarget: vi.fn().mockResolvedValue(undefined),
       listSpecialistSkillCatalog: vi

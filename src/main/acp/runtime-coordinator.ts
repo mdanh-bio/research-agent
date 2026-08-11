@@ -1,4 +1,4 @@
-import type { ActiveSession } from '@agentclientprotocol/sdk'
+import type { ActiveSession, PromptResponse } from '@agentclientprotocol/sdk'
 import { randomUUID } from 'node:crypto'
 
 import type {
@@ -18,7 +18,12 @@ import type {
   AcpStateSnapshot
 } from '../../shared/acp'
 import { toAcpTurnTokenUsage } from '../../shared/acp'
-import type { ModelTarget } from '../../shared/model-routing'
+import {
+  DATA_BOUNDARIES,
+  type DataBoundary,
+  type ModelCapability,
+  type ModelTarget
+} from '../../shared/model-routing'
 import type { AcpHandoffFailure } from '../../shared/acp'
 import type { ResolvedReasoningEffort } from '../../shared/reasoning-effort'
 import type { AgentFrameworkId } from '../../shared/settings'
@@ -30,8 +35,19 @@ import type { AgentUserChoiceRequest, AgentUserChoiceResult } from '../../shared
 import type { AgentModelChangeTarget } from '../agent-framework'
 import type { ShutdownStepOutcome } from '../lifecycle-shutdown'
 import { RoutedTargetUnavailableError } from '../model-routing/runtime-orchestrator'
-import type { RoutedRunOrchestrator } from '../model-routing/runtime-orchestrator'
+import type {
+  PreparedRoutedRequestIdentity,
+  RoutedRunOrchestrator
+} from '../model-routing/runtime-orchestrator'
 import type { RequestIdentityInput } from '../model-routing/fallback-policy'
+import { imageAttachmentMimeType } from '../../shared/uploads'
+
+type RoutedReferenceIdentity = Readonly<{
+  name: string
+  sha256: string
+  sizeBytes: number
+  versionId: string
+}>
 
 const MAX_EVENTS = 500
 const QUIT_PREPARATION_TIMEOUT_MS = 4_000
@@ -70,33 +86,53 @@ type RoutedModelChangeTargetResolver = (
   target: ModelTarget
 ) => Promise<AgentModelChangeTarget | undefined>
 
-export const routingRequestIdentity = (request: AcpPromptRequest): RequestIdentityInput => {
-  const attachments = [
-    ...(request.attachments ?? []),
-    ...(request.historyAttachments ?? []),
-    ...(request.resumeFallback?.historyAttachments ?? [])
-  ].map((attachment) => {
-    const checksum = attachment.checksum?.toLowerCase()
-    if (!checksum || !/^[0-9a-f]{64}$/.test(checksum)) {
-      throw new Error(
-        `Transparent routing requires an immutable checksum for attachment ${attachment.name}.`
-      )
-    }
-    return Object.freeze({
-      name: attachment.name,
-      sha256: `sha256:${checksum}`,
-      sizeBytes: attachment.size
+export const routingRequestIdentity = (
+  request: AcpPromptRequest,
+  referencedArtifacts: readonly RoutedReferenceIdentity[] = []
+): RequestIdentityInput => {
+  const attachmentGroups = [
+    ['current', request.attachments ?? []],
+    ['history', request.historyAttachments ?? []],
+    ['resume', request.resumeFallback?.historyAttachments ?? []]
+  ] as const
+  const attachments = attachmentGroups.flatMap(([group, values]) =>
+    values.map((attachment) => {
+      const checksum = attachment.checksum?.toLowerCase()
+      if (!checksum || !/^[0-9a-f]{64}$/.test(checksum)) {
+        throw new Error(
+          `Transparent routing requires an immutable checksum for attachment ${attachment.name}.`
+        )
+      }
+      return Object.freeze({
+        name: `${group}:${attachment.versionId ?? attachment.id}:${attachment.name}`,
+        sha256: `sha256:${checksum}`,
+        sizeBytes: attachment.size
+      })
     })
-  })
+  )
+  const referenceAttachments = referencedArtifacts.map((reference) =>
+    Object.freeze({
+      name: `reference:${reference.versionId}:${reference.name}`,
+      sha256: reference.sha256,
+      sizeBytes: reference.sizeBytes
+    })
+  )
   return Object.freeze({
     body: JSON.stringify({
+      requestIdentityVersion: 2,
       text: request.text,
       turnIntent: request.turnIntent,
+      routingConstraints: request.routingConstraints,
       planContinuation: request.planContinuation,
       continuation: request.continuation,
       provenanceContext: request.provenanceContext,
       forcedSkillIds: request.forcedSkillIds,
-      referencedArtifacts: request.referencedArtifacts,
+      referencedArtifacts: referencedArtifacts.map(({ versionId, name, sha256, sizeBytes }) => ({
+        versionId,
+        name,
+        sha256,
+        sizeBytes
+      })),
       historyPreamble: request.historyPreamble,
       historyImages: request.historyImages,
       resumeFallback: request.resumeFallback
@@ -112,7 +148,56 @@ export const routingRequestIdentity = (request: AcpPromptRequest): RequestIdenti
       },
       contextReset: request.contextReset
     }),
-    ...(attachments.length > 0 ? { attachments: Object.freeze(attachments) } : {})
+    ...([...attachments, ...referenceAttachments].length > 0
+      ? { attachments: Object.freeze([...attachments, ...referenceAttachments]) }
+      : {})
+  })
+}
+
+const promptRequiredCapabilities = (request: AcpPromptRequest): readonly ModelCapability[] => {
+  const uploads = [
+    ...(request.attachments ?? []),
+    ...(request.historyAttachments ?? []),
+    ...(request.resumeFallback?.historyAttachments ?? [])
+  ]
+  const hasImage =
+    request.historyImages?.length ||
+    request.resumeFallback?.historyImages?.length ||
+    uploads.some((attachment) =>
+      Boolean(
+        imageAttachmentMimeType(attachment.name || attachment.originalName, attachment.mimeType)
+      )
+    ) ||
+    (request.referencedArtifacts ?? []).some((reference) =>
+      Boolean(imageAttachmentMimeType(reference.name, reference.mimeType))
+    )
+  return hasImage ? Object.freeze(['image_input']) : Object.freeze([])
+}
+
+const routingDataBoundary = (request: AcpPromptRequest): DataBoundary | undefined => {
+  const boundary = request.routingConstraints?.dataBoundary
+  if (boundary === undefined) return undefined
+  if (!(DATA_BOUNDARIES as readonly string[]).includes(boundary)) {
+    throw new Error('Invalid routed prompt data boundary.')
+  }
+  return boundary
+}
+
+const cancelledRoutedDispatch = (): Readonly<{ value: PromptResponse; cancelled: true }> =>
+  Object.freeze({ value: { stopReason: 'cancelled' } as PromptResponse, cancelled: true })
+
+const routedRequestPreparation = (
+  request: AcpPromptRequest,
+  referencedArtifacts: readonly RoutedReferenceIdentity[],
+  resolvedReferenceHasImage: boolean,
+  dataBoundary: ReturnType<typeof routingDataBoundary>
+): PreparedRoutedRequestIdentity => {
+  const capabilities = new Set(promptRequiredCapabilities(request))
+  if (resolvedReferenceHasImage) capabilities.add('image_input')
+  return Object.freeze({
+    ...routingRequestIdentity(request, referencedArtifacts),
+    ...(capabilities.size > 0 ? { requiredCapabilities: Object.freeze([...capabilities]) } : {}),
+    ...(dataBoundary ? { dataBoundary } : {})
   })
 }
 
@@ -123,13 +208,47 @@ type PendingPromptStart = {
   globalCancellationGeneration: number
 }
 
+type RoutedPromptAdmission = {
+  id: string
+  sessionId: string
+  sessionCancellationGeneration: number
+  globalCancellationGeneration: number
+  controller: AbortController
+}
+
+type ModelTargetSetupLease = Readonly<{ release: () => void }>
+
+// Target application mutates a generation-wide backend configuration.  A routed prompt keeps this
+// lease only until its exact ledger attempt activates, at which point the runtime operation owns the
+// dispatch boundary and ordinary model-change barriers resume their normal role.
+class ModelTargetSetupGate {
+  private tail: Promise<void> = Promise.resolve()
+
+  async acquire(): Promise<ModelTargetSetupLease> {
+    const previous = this.tail
+    let release!: () => void
+    this.tail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    let released = false
+    return Object.freeze({
+      release: () => {
+        if (released) return
+        released = true
+        release()
+      }
+    })
+  }
+}
+
 type ActivePromptRequest = {
   request: AcpPromptRequest
   runtime: AcpRuntime
   attemptId: string
   turnToken?: string
   acceptance?: PromptAcceptance
-  activateRoutedAttempt?: () => Promise<void>
+  activateRoutedAttempt?: () => Promise<'active' | 'cancelled'>
 }
 
 type PromptAcceptance = {
@@ -185,6 +304,10 @@ class AcpRuntimeCoordinator {
   private readonly pendingPromptStarts = new Map<string, PendingPromptStart[]>()
   private readonly activePromptRequests = new Map<string, ActivePromptRequest>()
   private readonly activePromptCounts = new Map<string, number>()
+  private readonly routedPromptAdmissions = new Map<string, RoutedPromptAdmission>()
+  private readonly routedAttemptIds = new Map<string, string>()
+  private readonly modelTargetSetupGate = new ModelTargetSetupGate()
+  private routedPromptAdmissionSequence = 0
   private readonly interactionReleaseWaiters = new Map<string, Set<() => void>>()
   private promptAdmissionGuard?: (sessionId: string) => Promise<void>
   private promptAdmissionClosedForQuit = false
@@ -653,15 +776,27 @@ class AcpRuntimeCoordinator {
     acceptance?: PromptAcceptance
   ): ReturnType<AcpRuntime['sendPrompt']> {
     if (this.promptAdmissionClosedForQuit) return this.rejectPromptForQuit()
-    if (!this.promptAdmissionGuard) return this.dispatchRoutedPrompt(request, acceptance)
-    return this.promptAdmissionGuard(request.sessionId).then(() =>
-      this.dispatchRoutedPrompt(request, acceptance)
-    )
+    if (!this.routedRuns) {
+      if (!this.promptAdmissionGuard) return this.dispatchRoutedPrompt(request, acceptance)
+      return this.promptAdmissionGuard(request.sessionId).then(() =>
+        this.dispatchRoutedPrompt(request, acceptance)
+      )
+    }
+    if (this.activePromptRequests.has(request.sessionId)) {
+      return Promise.reject(new Error('An ACP prompt is already running for this session'))
+    }
+    const admission = this.reserveRoutedPromptAdmission(request.sessionId)
+    const begin = async (): Promise<PromptResponse> => {
+      if (this.promptAdmissionGuard) await this.promptAdmissionGuard(request.sessionId)
+      return this.dispatchRoutedPrompt(request, acceptance, admission)
+    }
+    return begin().finally(() => this.releaseRoutedPromptAdmission(admission))
   }
 
   private dispatchRoutedPrompt(
     request: AcpPromptRequest,
-    acceptance?: PromptAcceptance
+    acceptance?: PromptAcceptance,
+    admission?: RoutedPromptAdmission
   ): ReturnType<AcpRuntime['sendPrompt']> {
     if (!this.routedRuns) return this.dispatchPrompt(request, acceptance, 'sendPrompt')
     const taskRequest = this.withPromptProvenance(request)
@@ -669,49 +804,104 @@ class AcpRuntimeCoordinator {
       taskRequest.planContinuation?.projectId ??
       this.liveSessionProjectId(taskRequest.sessionId) ??
       'default'
-    let userPromptDispatched = false
+    const dataBoundary = routingDataBoundary(taskRequest)
+    let preparedTaskRequest = taskRequest
     return this.routedRuns.execute(
       {
         projectId,
         sessionId: taskRequest.sessionId,
         promptMessageId: taskRequest.provenanceContext?.promptMessageId,
         workClass: taskRequest.workClass ?? 'analysis',
-        request: () => routingRequestIdentity(taskRequest)
-      },
-      async (context) => {
-        const providerRequest =
-          context.kind === 'routed' ? structuredClone(taskRequest) : taskRequest
-        if (context.kind === 'routed') {
-          const target = await this.resolveRoutedModelChangeTarget?.(context.target)
-          if (!target) {
-            throw new RoutedTargetUnavailableError(
-              `The routed target ${context.target.id} cannot be applied to this runtime.`
-            )
+        requiredCapabilities: promptRequiredCapabilities(taskRequest),
+        ...(dataBoundary ? { dataBoundary } : {}),
+        request: async () => {
+          if (!this.routedPromptAdmissionActive(admission)) {
+            return routedRequestPreparation(taskRequest, [], false, dataBoundary)
           }
           const runtime =
             this.findRuntimeForSession(taskRequest.sessionId) ?? this.getActiveRuntime()
-          if (!(await runtime.applyModelChange(target))) {
-            throw new RoutedTargetUnavailableError(
-              `The routed target ${context.target.id} requires a new runtime handoff.`
+          const prepared = await runtime.prepareRoutedPromptRequest(taskRequest, projectId)
+          if (!this.routedPromptAdmissionActive(admission)) {
+            return routedRequestPreparation(
+              prepared.request,
+              prepared.referenceIdentities,
+              prepared.requiresImageInput,
+              dataBoundary
             )
           }
+          preparedTaskRequest = prepared.request
+          return routedRequestPreparation(
+            prepared.request,
+            prepared.referenceIdentities,
+            prepared.requiresImageInput,
+            dataBoundary
+          )
         }
-        const replay = context.kind === 'routed' && userPromptDispatched
-        const activate =
-          context.kind === 'routed'
-            ? async (): Promise<void> => {
+      },
+      async (context) => {
+        if (!this.routedPromptAdmissionActive(admission)) {
+          return cancelledRoutedDispatch()
+        }
+        const providerRequest =
+          context.kind === 'routed' ? structuredClone(preparedTaskRequest) : preparedTaskRequest
+        if (context.kind === 'routed') {
+          const lease = await this.modelTargetSetupGate.acquire()
+          try {
+            if (!this.routedPromptAdmissionActive(admission)) {
+              return cancelledRoutedDispatch()
+            }
+            const target = await this.resolveRoutedModelChangeTarget?.(context.target)
+            if (!target) {
+              throw new RoutedTargetUnavailableError(
+                `The routed target ${context.target.id} cannot be applied to this runtime.`
+              )
+            }
+            if (!this.routedPromptAdmissionActive(admission)) {
+              return cancelledRoutedDispatch()
+            }
+            const runtime =
+              this.findRuntimeForSession(taskRequest.sessionId) ?? this.getActiveRuntime()
+            if (!(await runtime.applyModelChange(target))) {
+              throw new RoutedTargetUnavailableError(
+                `The routed target ${context.target.id} requires a new runtime handoff.`
+              )
+            }
+            if (!this.routedPromptAdmissionActive(admission)) {
+              return cancelledRoutedDispatch()
+            }
+            const promptMessageId = providerRequest.provenanceContext?.promptMessageId
+            if (promptMessageId) {
+              this.routedAttemptIds.set(
+                this.routedAttemptKey(providerRequest.sessionId, promptMessageId),
+                context.attemptId
+              )
+            }
+            const response = await this.dispatchPrompt(
+              providerRequest,
+              acceptance,
+              'sendPrompt',
+              undefined,
+              true,
+              async (): Promise<'active' | 'cancelled'> => {
+                if (!this.routedPromptAdmissionActive(admission)) {
+                  return 'cancelled'
+                }
                 await context.activate()
-                userPromptDispatched = true
+                lease.release()
+                return 'active'
               }
-            : undefined
-        const response = await this.dispatchPrompt(
-          replay ? { ...providerRequest, suppressUserMessage: true } : providerRequest,
-          acceptance,
-          'sendPrompt',
-          undefined,
-          !replay,
-          activate
-        )
+            )
+            const usage = toAcpTurnTokenUsage(response.usage)
+            return Object.freeze({
+              value: response,
+              cancelled: response.stopReason === 'cancelled',
+              ...(usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {})
+            })
+          } finally {
+            lease.release()
+          }
+        }
+        const response = await this.dispatchPrompt(providerRequest, acceptance, 'sendPrompt')
         const usage = toAcpTurnTokenUsage(response.usage)
         return Object.freeze({
           value: response,
@@ -763,7 +953,7 @@ class AcpRuntimeCoordinator {
     operation: 'sendPrompt' | 'sendAppContinuation',
     pinnedRuntime?: AcpRuntime,
     retainAsLatestUserPrompt = operation === 'sendPrompt',
-    activateRoutedAttempt?: () => Promise<void>
+    activateRoutedAttempt?: () => Promise<'active' | 'cancelled'>
   ): ReturnType<AcpRuntime['sendPrompt']> {
     if (this.promptAdmissionClosedForQuit) return this.rejectPromptForQuit()
     const owner = pinnedRuntime ?? this.findRuntimeForSession(request.sessionId)
@@ -854,6 +1044,7 @@ class AcpRuntimeCoordinator {
       this.sessionRuntimes.delete(request.sessionId)
       this.sessionConnectionStatuses.delete(request.sessionId)
       this.latestPromptRequests.delete(request.sessionId)
+      this.clearRoutedAttemptIds(request.sessionId)
       this.clearApplicationSessionEvents(request.sessionId)
       this.onSessionUnavailable?.(request.sessionId)
     }
@@ -957,7 +1148,12 @@ class AcpRuntimeCoordinator {
   }
 
   async applyModelChange(target: AgentModelChangeTarget): Promise<boolean> {
-    return this.getActiveRuntime().applyModelChange(target)
+    const lease = await this.modelTargetSetupGate.acquire()
+    try {
+      return await this.getActiveRuntime().applyModelChange(target)
+    } finally {
+      lease.release()
+    }
   }
 
   writeArtifactForCurrentRun(
@@ -1100,12 +1296,57 @@ class AcpRuntimeCoordinator {
       sessionId,
       (this.sessionCancellationGenerations.get(sessionId) ?? 0) + 1
     )
+    const admission = this.routedPromptAdmissions.get(sessionId)
+    admission?.controller.abort()
     if (notifyCancellation) this.teardownCallbacks.onSessionCancellationRequested?.(sessionId)
   }
 
   private invalidateAllSessionTurns(): void {
     this.globalCancellationGeneration += 1
+    for (const admission of this.routedPromptAdmissions.values()) admission.controller.abort()
     this.teardownCallbacks.onAllSessionsCancellationRequested?.()
+  }
+
+  private reserveRoutedPromptAdmission(sessionId: string): RoutedPromptAdmission {
+    const previous = this.routedPromptAdmissions.get(sessionId)
+    previous?.controller.abort()
+    const admission: RoutedPromptAdmission = {
+      id: `routed-admission-${++this.routedPromptAdmissionSequence}`,
+      sessionId,
+      sessionCancellationGeneration: this.sessionCancellationGenerations.get(sessionId) ?? 0,
+      globalCancellationGeneration: this.globalCancellationGeneration,
+      controller: new AbortController()
+    }
+    this.routedPromptAdmissions.set(sessionId, admission)
+    return admission
+  }
+
+  private releaseRoutedPromptAdmission(admission: RoutedPromptAdmission): void {
+    if (this.routedPromptAdmissions.get(admission.sessionId) === admission) {
+      this.routedPromptAdmissions.delete(admission.sessionId)
+    }
+  }
+
+  private routedPromptAdmissionActive(admission: RoutedPromptAdmission | undefined): boolean {
+    if (!admission) return true
+    return (
+      this.routedPromptAdmissions.get(admission.sessionId) === admission &&
+      !admission.controller.signal.aborted &&
+      admission.globalCancellationGeneration === this.globalCancellationGeneration &&
+      admission.sessionCancellationGeneration ===
+        (this.sessionCancellationGenerations.get(admission.sessionId) ?? 0)
+    )
+  }
+
+  private routedAttemptKey(sessionId: string, promptMessageId: string): string {
+    return `${sessionId}\u0000${promptMessageId}`
+  }
+
+  private clearRoutedAttemptIds(sessionId: string): void {
+    const prefix = `${sessionId}\u0000`
+    for (const key of this.routedAttemptIds.keys()) {
+      if (key.startsWith(prefix)) this.routedAttemptIds.delete(key)
+    }
   }
 
   private takePendingPromptStart(
@@ -1178,8 +1419,11 @@ class AcpRuntimeCoordinator {
       {
         onStateChanged: (snapshot) => this.handleRuntimeState(runtime, snapshot),
         onEvent: (event) => {
-          if (isRoutingSideEffectEvent(event) && event.sessionId) {
-            this.routedRuns?.markSideEffectsStarted(event.sessionId, event.promptMessageId)
+          if (isRoutingSideEffectEvent(event) && event.sessionId && event.promptMessageId) {
+            const attemptId = this.routedAttemptIds.get(
+              this.routedAttemptKey(event.sessionId, event.promptMessageId)
+            )
+            if (attemptId) this.routedRuns?.markSideEffectsStarted(attemptId)
           }
           if (!this.shouldPublishEvent(runtime, event)) return
           this.callbacks.onEvent?.({ ...event, id: this.eventId(runtime, event.id) })
@@ -1216,8 +1460,8 @@ class AcpRuntimeCoordinator {
         },
         onBeforeProviderPromptDispatch: async (sessionId, promptAttemptId) => {
           const activePrompt = this.activePromptRequests.get(sessionId)
-          if (!activePrompt || activePrompt.attemptId !== promptAttemptId) return
-          await activePrompt.activateRoutedAttempt?.()
+          if (!activePrompt || activePrompt.attemptId !== promptAttemptId) return 'active'
+          return activePrompt.activateRoutedAttempt?.()
         },
         onPromptEnded: (sessionId, turnToken) => {
           const remaining = (this.activePromptCounts.get(sessionId) ?? 1) - 1
@@ -1287,6 +1531,7 @@ class AcpRuntimeCoordinator {
       } else {
         this.sessionConnectionStatuses.delete(sessionId)
       }
+      this.clearRoutedAttemptIds(sessionId)
       this.clearApplicationSessionEvents(sessionId)
       this.onSessionUnavailable?.(sessionId)
     }
@@ -1310,6 +1555,7 @@ class AcpRuntimeCoordinator {
       } else {
         this.sessionConnectionStatuses.delete(sessionId)
       }
+      this.clearRoutedAttemptIds(sessionId)
       this.clearApplicationSessionEvents(sessionId)
       this.onSessionUnavailable?.(sessionId)
     }

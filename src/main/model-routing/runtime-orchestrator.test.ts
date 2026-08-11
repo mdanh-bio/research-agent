@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ModelRoutePolicy, ModelTarget, WorkClass } from '../../shared/model-routing'
-import { resolveRouteDecision, type RoutePolicyLayers } from './policy-planner'
-import type { ConfiguredRouteResolution } from './configured-policy'
+import type { ModelRoutePolicy, ModelTarget } from '../../shared/model-routing'
+import { type ConfiguredRouteResolution, type ConfiguredRoutingContext } from './configured-policy'
 import type { RoutingProfile } from './default-profiles'
 import { ModelRoutingLedger } from './ledger'
-import { RoutedRunOrchestrator, RoutingRecoveryHandoffRequiredError } from './runtime-orchestrator'
+import { resolveRouteDecision, type RoutePolicyLayers, type RouteRequest } from './policy-planner'
+import {
+  RoutedRunOrchestrator,
+  RoutedTargetUnavailableError,
+  RoutingRecoveryHandoffRequiredError,
+  routingFailureEvidenceFromError
+} from './runtime-orchestrator'
 
 const target = (id: string): ModelTarget => ({
   id,
@@ -36,29 +41,36 @@ const profile = {
   version: '1',
   policies: { analysis: policy }
 } as unknown as RoutingProfile
+const capturedContext: ConfiguredRoutingContext = Object.freeze({ profile, layers })
 
-const resolver = vi.fn(
-  async (
-    _workClass: WorkClass,
-    options: {
-      projectId: string
-      sessionOrAgentPin?: ModelRoutePolicy
-      excludedTargetIds?: readonly string[]
-    }
-  ): Promise<ConfiguredRouteResolution> => ({
-    profile,
-    decision: resolveRouteDecision(
-      { workClass: 'analysis', excludedTargetIds: options.excludedTargetIds },
+const createResolver = (): {
+  capture: () => Promise<ConfiguredRoutingContext>
+  resolve: (
+    context: ConfiguredRoutingContext,
+    request: RouteRequest
+  ) => Promise<ConfiguredRouteResolution>
+} => {
+  const capture = vi.fn(async () => capturedContext)
+  const resolve = vi.fn(
+    async (
+      _context: ConfiguredRoutingContext,
+      request: RouteRequest
+    ): Promise<ConfiguredRouteResolution> => ({
+      profile,
+      decision: resolveRouteDecision(
+        { workClass: 'analysis', excludedTargetIds: request.excludedTargetIds },
+        layers
+      ),
+      effectivePolicy: policy,
       layers
-    ),
-    effectivePolicy: policy,
-    layers
-  })
-)
+    })
+  )
+  return { capture, resolve }
+}
 
 const fakeLedger = (): ModelRoutingLedger => {
   let attempt = 0
-  const ledger = {
+  return {
     beginAgentRun: vi.fn().mockResolvedValue({
       policySnapshotId: 'snapshot',
       agentRunId: 'run',
@@ -70,8 +82,7 @@ const fakeLedger = (): ModelRoutingLedger => {
     finishReservedModelAttempt: vi.fn().mockResolvedValue(undefined),
     finishAgentRun: vi.fn().mockResolvedValue(undefined),
     markSideEffectsStarted: vi.fn().mockResolvedValue({})
-  }
-  return ledger as unknown as ModelRoutingLedger
+  } as unknown as ModelRoutingLedger
 }
 
 const input = {
@@ -82,10 +93,20 @@ const input = {
   request: { body: 'byte-equivalent request' }
 }
 
+const providerError = (status: number, code?: string): Error =>
+  Object.assign(new Error('provider rejected request'), {
+    data: {
+      errorName: 'APIError',
+      ...(code ? { code } : {}),
+      status
+    }
+  })
+
 describe('RoutedRunOrchestrator', () => {
-  it('is a behavioral no-op when routing resolves off', async () => {
+  it('is a behavioral no-op when routing is off', async () => {
     const ledger = fakeLedger()
-    const orchestrator = new RoutedRunOrchestrator(async () => undefined, ledger)
+    const resolver = { capture: vi.fn(async () => undefined), resolve: vi.fn() }
+    const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
     const dispatch = vi.fn().mockResolvedValue({ value: 'legacy result' })
     const request = vi.fn(() => ({ body: 'must not be hashed while routing is off' }))
 
@@ -94,11 +115,13 @@ describe('RoutedRunOrchestrator', () => {
     )
     expect(dispatch).toHaveBeenCalledWith({ kind: 'legacy' })
     expect(request).not.toHaveBeenCalled()
+    expect(resolver.resolve).not.toHaveBeenCalled()
     expect(ledger.beginAgentRun).not.toHaveBeenCalled()
   })
 
-  it('validates request identity before creating a durable run', async () => {
+  it('validates identity after capture and before creating a durable run', async () => {
     const ledger = fakeLedger()
+    const resolver = createResolver()
     const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
     const invalidRequest = vi.fn(() => {
       throw new Error('attachment identity unavailable')
@@ -110,71 +133,62 @@ describe('RoutedRunOrchestrator', () => {
     expect(ledger.beginAgentRun).not.toHaveBeenCalled()
   })
 
-  it('re-resolves eligible failures in policy order and stops after two alternates', async () => {
-    resolver.mockClear()
+  it('retries only an eligible reserved target and resolves alternates from the captured context', async () => {
     const ledger = fakeLedger()
+    const resolver = createResolver()
     const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
     const seenTargets: string[] = []
     const dispatch = vi.fn().mockImplementation(async (context) => {
       seenTargets.push(context.target.id)
-      await context.activate()
-      if (context.sequence === 0) throw Object.assign(new Error('limited'), { status: 429 })
-      if (context.sequence === 1) throw Object.assign(new Error('down'), { status: 503 })
-      return { value: 'fallback result', inputTokens: 10, outputTokens: 4 }
-    })
-
-    await expect(orchestrator.execute(input, dispatch)).resolves.toBe('fallback result')
-    expect(seenTargets).toEqual(['strong', 'medium', 'cheap'])
-    expect(resolver).toHaveBeenNthCalledWith(
-      2,
-      'analysis',
-      expect.objectContaining({ excludedTargetIds: ['strong'] })
-    )
-    expect(resolver).toHaveBeenNthCalledWith(
-      3,
-      'analysis',
-      expect.objectContaining({ excludedTargetIds: ['strong', 'medium'] })
-    )
-    expect(ledger.beginModelAttempt).toHaveBeenCalledTimes(3)
-    expect(ledger.finishAgentRun).toHaveBeenLastCalledWith('run', 'completed')
-  })
-
-  it('never dispatches a fourth model after the two-alternate cap', async () => {
-    const ledger = fakeLedger()
-    const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
-    const dispatch = vi.fn().mockImplementation(async (context) => {
-      await context.activate()
-      throw Object.assign(new Error('down'), { status: 503 })
-    })
-
-    await expect(orchestrator.execute(input, dispatch)).rejects.toThrow('down')
-    expect(dispatch).toHaveBeenCalledTimes(3)
-    expect(ledger.finishAgentRun).toHaveBeenLastCalledWith('run', 'failed')
-  })
-
-  it('keeps target-application failures reserved and activates only at provider dispatch', async () => {
-    const ledger = fakeLedger()
-    const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
-    const dispatch = vi.fn().mockImplementation(async (context) => {
-      if (context.sequence === 0) {
-        throw Object.assign(new Error('target unavailable'), { status: 503 })
-      }
+      if (context.sequence === 0) throw new RoutedTargetUnavailableError('target unavailable')
       await context.activate()
       return { value: 'second target' }
     })
 
     await expect(orchestrator.execute(input, dispatch)).resolves.toBe('second target')
-    expect(ledger.activateModelAttempt).toHaveBeenCalledTimes(1)
-    expect(ledger.activateModelAttempt).toHaveBeenCalledWith('attempt-1')
+    expect(seenTargets).toEqual(['strong', 'medium'])
+    expect(resolver.resolve).toHaveBeenNthCalledWith(
+      2,
+      capturedContext,
+      expect.objectContaining({ excludedTargetIds: ['strong'] })
+    )
     expect(ledger.finishReservedModelAttempt).toHaveBeenCalledWith(
       'attempt-0',
       expect.objectContaining({ result: 'failure', failureCategory: 'provider_unavailable' })
     )
   })
 
+  it('stops after two pre-dispatch alternates', async () => {
+    const ledger = fakeLedger()
+    const orchestrator = new RoutedRunOrchestrator(createResolver(), ledger)
+    const dispatch = vi.fn(async () => {
+      throw new RoutedTargetUnavailableError('target unavailable')
+    })
+
+    await expect(orchestrator.execute(input, dispatch)).rejects.toThrow('target unavailable')
+    expect(dispatch).toHaveBeenCalledTimes(3)
+    expect(ledger.finishAgentRun).toHaveBeenLastCalledWith('run', 'failed')
+  })
+
+  it('never replays after activation, including an eligible provider 429', async () => {
+    const ledger = fakeLedger()
+    const orchestrator = new RoutedRunOrchestrator(createResolver(), ledger)
+    const dispatch = vi.fn().mockImplementation(async (context) => {
+      await context.activate()
+      throw providerError(429, 'rate_limit')
+    })
+
+    await expect(orchestrator.execute(input, dispatch)).rejects.toThrow('provider rejected request')
+    expect(dispatch).toHaveBeenCalledOnce()
+    expect(ledger.finishModelAttempt).toHaveBeenCalledWith(
+      'attempt-0',
+      expect.objectContaining({ result: 'failure', failureCategory: 'rate_limit' })
+    )
+  })
+
   it('finalizes a pre-dispatch cancellation without claiming the provider ran', async () => {
     const ledger = fakeLedger()
-    const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
+    const orchestrator = new RoutedRunOrchestrator(createResolver(), ledger)
 
     await expect(
       orchestrator.execute(input, async () => ({ value: 'cancelled', cancelled: true }))
@@ -187,37 +201,29 @@ describe('RoutedRunOrchestrator', () => {
     expect(ledger.finishAgentRun).toHaveBeenCalledWith('run', 'cancelled')
   })
 
-  it('does not retry an AbortError without explicit timeout evidence', async () => {
-    const ledger = fakeLedger()
-    const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
-    const aborted = Object.assign(new Error('user cancelled'), { name: 'AbortError' })
-    const dispatch = vi.fn().mockImplementation(async (context) => {
-      await context.activate()
-      throw aborted
+  it('accepts only structured provider-origin evidence', () => {
+    expect(routingFailureEvidenceFromError(providerError(503, 'server_error'))).toMatchObject({
+      httpStatus: 503,
+      code: 'server_error'
     })
-
-    await expect(orchestrator.execute(input, dispatch)).rejects.toBe(aborted)
-    expect(dispatch).toHaveBeenCalledOnce()
-    expect(ledger.finishModelAttempt).toHaveBeenCalledWith(
-      'attempt-0',
-      expect.objectContaining({ result: 'failure', failureCategory: 'unknown' })
-    )
-    expect(ledger.finishAgentRun).toHaveBeenLastCalledWith('run', 'failed')
+    expect(
+      routingFailureEvidenceFromError(Object.assign(new Error('local parse bug'), { status: 503 }))
+    ).toEqual({})
+    expect(routingFailureEvidenceFromError(new SyntaxError('local parse bug'))).toEqual({})
   })
 
-  it('marks any observed tool call as a replay guard and hands off after failure', async () => {
+  it('marks a side effect by the exact ledger attempt and blocks a post-dispatch failure', async () => {
     const ledger = fakeLedger()
-    const orchestrator = new RoutedRunOrchestrator(resolver, ledger)
+    const orchestrator = new RoutedRunOrchestrator(createResolver(), ledger)
     const dispatch = vi.fn().mockImplementation(async (context) => {
       await context.activate()
-      orchestrator.markSideEffectsStarted('session', 'message')
-      throw Object.assign(new Error('limited'), { status: 429 })
+      orchestrator.markSideEffectsStarted(context.attemptId)
+      throw providerError(429, 'rate_limit')
     })
 
     await expect(orchestrator.execute(input, dispatch)).rejects.toBeInstanceOf(
       RoutingRecoveryHandoffRequiredError
     )
-    expect(dispatch).toHaveBeenCalledTimes(1)
     expect(ledger.markSideEffectsStarted).toHaveBeenCalledWith('attempt-0')
     expect(ledger.finishAgentRun).toHaveBeenLastCalledWith('run', 'blocked')
   })

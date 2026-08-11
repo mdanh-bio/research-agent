@@ -109,6 +109,7 @@ import type { PlanResponseResult, PlanServiceDependencies } from '../session-pla
 import type { ActivePlanProjection, PlanResponseCommand } from '../../shared/session-plan/contract'
 import type { SessionPersistenceCoordinator } from '../session-persistence/coordinator'
 import type { AcpRuntimeBaseOwners } from './runtime-base-composition'
+import type { PreparedRoutedReferences } from './prompt-content-owner'
 import type { AcpRuntimePublicationOwner } from './runtime-publication-owner'
 import type { AcpRuntimeSessionOwners } from './runtime-session-composition'
 import type { AcpSessionEnvironmentPolicy } from './session-environment-policy'
@@ -129,7 +130,10 @@ export type AcpRuntimeCallbacks = {
   onPromptStarted?: (sessionId: string, turnToken: string, promptAttemptId?: string) => void
   // Runs after prompt preparation and the final cancellation checkpoint, immediately before the
   // provider executor calls session.prompt(). Transparent routing activates its reserved attempt here.
-  onBeforeProviderPromptDispatch?: (sessionId: string, promptAttemptId?: string) => Promise<void>
+  onBeforeProviderPromptDispatch?: (
+    sessionId: string,
+    promptAttemptId?: string
+  ) => Promise<'active' | 'cancelled' | void>
   // Fires after the provider prompt yields its first update/terminal response. Reaching this point
   // proves startup did not reject before the provider accepted the request.
   onProviderPromptAccepted?: (sessionId: string, promptAttemptId?: string) => void
@@ -337,6 +341,7 @@ class AcpRuntime {
   private readonly sessionConfigurator: AcpSessionConfigurator
   private readonly sessionUpdateProjector: AcpSessionUpdateProjector
   private readonly providerPromptExecutor: AcpProviderPromptExecutor
+  private readonly promptContentOwner: AcpRuntimeBaseOwners['promptContentOwner']
   private readonly artifactOptions: AcpRuntimeArtifactOptions | undefined
   private readonly artifactTurns: ArtifactTurnOwner | undefined
   private readonly sessionPlanWorkflow: AcpRuntimePlanWorkflow
@@ -367,6 +372,7 @@ class AcpRuntime {
     this.connectionResources = base.connectionResources
     this.backendGeneration = base.backendGeneration
     this.providerPromptExecutor = base.providerPromptExecutor
+    this.promptContentOwner = base.promptContentOwner
     this.sessionInteractions = base.sessionInteractions
     this.artifactTurns = base.artifactTurns
     this.handoffContinuity = base.handoffContinuity
@@ -556,6 +562,33 @@ class AcpRuntime {
   // the old model.
   async applyModelChange(target: AgentModelChangeTarget): Promise<boolean> {
     return this.modelChanges.apply(target)
+  }
+
+  // Resolves composer `@` references into immutable managed Versions before transparent routing
+  // persists a request identity. Ordinary routing-off prompts never call this path.
+  async prepareRoutedPromptRequest(
+    request: AcpPromptRequest,
+    projectId: string
+  ): Promise<
+    Readonly<{
+      request: AcpPromptRequest
+      referenceIdentities: PreparedRoutedReferences['identities']
+      requiresImageInput: boolean
+    }>
+  > {
+    const prepared = await this.promptContentOwner.prepareRoutedReferences({
+      projectId,
+      sessionId: request.sessionId,
+      references: request.referencedArtifacts ?? []
+    })
+    return Object.freeze({
+      request:
+        prepared.references.length > 0
+          ? { ...request, referencedArtifacts: [...prepared.references] }
+          : request,
+      referenceIdentities: prepared.identities,
+      requiresImageInput: prepared.requiresImageInput
+    })
   }
 
   // Live-applies a reasoning-effort change to every open session — the ACP equivalent of a model

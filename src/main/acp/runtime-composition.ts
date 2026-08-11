@@ -122,7 +122,16 @@ const createAcpRuntime = ({
   const dataRoot = resolveDataRoot()
   const defaultCwd = homedir()
   const routedRuns = new RoutedRunOrchestrator(
-    (workClass, options) => settingsService.resolveConfiguredRoute(workClass, options),
+    {
+      // Compatibility compositions that do not expose the new capture seam remain routing-off. This
+      // is fail closed: no prompt inputs are materialized and no ledger rows are written.
+      capture: (options) =>
+        settingsService.captureConfiguredRoutingContext
+          ? settingsService.captureConfiguredRoutingContext(options)
+          : Promise.resolve(undefined),
+      resolve: (context, request) =>
+        Promise.resolve(settingsService.resolveCapturedConfiguredRoute(context, request))
+    },
     new ModelRoutingLedger(() => getProjectDbClient(dataRoot))
   )
   const callbacks: AcpRuntimeCallbacks = {

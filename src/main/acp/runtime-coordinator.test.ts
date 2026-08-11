@@ -56,6 +56,10 @@ const createFakeRuntime = (options: {
   beforeReviewerSession?: () => Promise<void>
   beforeResume?: () => Promise<void>
   afterResumeAttached?: () => Promise<void>
+  prepareRoutedPromptRequest?: (
+    request: AcpPromptRequest,
+    projectId: string
+  ) => ReturnType<AcpRuntime['prepareRoutedPromptRequest']>
   eligibleAttachmentUri?: string
   prompt?: (sessionId: string) => Promise<unknown>
 }): {
@@ -75,6 +79,7 @@ const createFakeRuntime = (options: {
   sendAppContinuation: ReturnType<typeof vi.fn>
   applyReasoningEffortChange: ReturnType<typeof vi.fn>
   applyModelChange: ReturnType<typeof vi.fn>
+  prepareRoutedPromptRequest: ReturnType<typeof vi.fn>
   respondToPermission: ReturnType<typeof vi.fn>
   requestUserInput: ReturnType<typeof vi.fn>
   emitEvent: (event: AcpRuntimeEvent) => void
@@ -136,6 +141,14 @@ const createFakeRuntime = (options: {
   const requestProviderReconnect = vi.fn(async () => undefined)
   const applyReasoningEffortChange = vi.fn(async () => true)
   const applyModelChange = vi.fn(async () => true)
+  const prepareRoutedPromptRequest = vi.fn(
+    options.prepareRoutedPromptRequest ??
+      (async (request: AcpPromptRequest) => ({
+        request,
+        referenceIdentities: [],
+        requiresImageInput: false
+      }))
+  )
   const respondToPermission = vi.fn((response: AcpPermissionResponse) => {
     options.callbacks.onPermissionSettled?.(
       response.requestId,
@@ -231,6 +244,7 @@ const createFakeRuntime = (options: {
     requestProviderReconnect,
     applyReasoningEffortChange,
     applyModelChange,
+    prepareRoutedPromptRequest,
     respondToPermission,
     requestUserInput,
     shutdown,
@@ -255,6 +269,7 @@ const createFakeRuntime = (options: {
     sendAppContinuation,
     applyReasoningEffortChange,
     applyModelChange,
+    prepareRoutedPromptRequest,
     respondToPermission,
     requestUserInput,
     emitEvent: (event) => {
@@ -304,9 +319,9 @@ describe('AcpRuntimeCoordinator', () => {
     })
 
     expect(digestInput.attachments).toEqual([
-      { name: 'prompt.txt', sha256: `sha256:${'a'.repeat(64)}`, sizeBytes: 4 },
-      { name: 'history.txt', sha256: `sha256:${'b'.repeat(64)}`, sizeBytes: 4 },
-      { name: 'resume.txt', sha256: `sha256:${'c'.repeat(64)}`, sizeBytes: 4 }
+      { name: 'current:prompt.txt:prompt.txt', sha256: `sha256:${'a'.repeat(64)}`, sizeBytes: 4 },
+      { name: 'history:history.txt:history.txt', sha256: `sha256:${'b'.repeat(64)}`, sizeBytes: 4 },
+      { name: 'resume:resume.txt:resume.txt', sha256: `sha256:${'c'.repeat(64)}`, sizeBytes: 4 }
     ])
     expect(JSON.parse(digestInput.body as string)).toMatchObject({
       attachmentGroupSizes: { prompt: 1, history: 1, resumeFallback: 1 },
@@ -319,6 +334,208 @@ describe('AcpRuntimeCoordinator', () => {
         attachments: [attachment('legacy.txt')]
       })
     ).toThrow(/immutable checksum/)
+  })
+
+  it('propagates image capability and a stricter request data boundary into routed resolution', async () => {
+    let routedInput: Record<string, unknown> | undefined
+    const execute = vi.fn(
+      async (
+        input: Record<string, unknown>,
+        dispatch: (context: RoutedDispatchContext) => Promise<RoutedDispatchResult<unknown>>
+      ) => {
+        routedInput = input
+        await (input.request as () => Promise<unknown>)()
+        return (await dispatch({ kind: 'legacy' })).value
+      }
+    )
+    const routedRuns = {
+      execute,
+      markSideEffectsStarted: vi.fn()
+    } as unknown as RoutedRunOrchestrator
+    const created: ReturnType<typeof createFakeRuntime>[] = []
+    const coordinator = new AcpRuntimeCoordinator(
+      (callbacks) => {
+        const fake = createFakeRuntime({
+          frameworkId: 'opencode',
+          sessionIds: ['session-1'],
+          callbacks
+        })
+        created.push(fake)
+        return fake.runtime
+      },
+      {},
+      '',
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      routedRuns
+    )
+    const session = await coordinator.createSession({ projectName: 'project' })
+
+    await coordinator.sendPrompt({
+      sessionId: session.sessionId,
+      text: 'Inspect the image.',
+      routingConstraints: { dataBoundary: 'local_only' },
+      attachments: [
+        {
+          id: 'image-version',
+          versionId: 'image-version',
+          sessionId: session.sessionId,
+          name: 'figure.png',
+          originalName: 'figure.png',
+          path: 'upload-version:project/session-1/image-version',
+          mimeType: 'image/png',
+          size: 1,
+          checksum: 'a'.repeat(64)
+        }
+      ]
+    })
+
+    expect(routedInput).toMatchObject({
+      requiredCapabilities: ['image_input'],
+      dataBoundary: 'local_only'
+    })
+    expect(created[0].prepareRoutedPromptRequest).toHaveBeenCalledOnce()
+  })
+
+  it('cancels a routed admission before provider dispatch and releases the session for the next turn', async () => {
+    const preparation =
+      createDeferred<Awaited<ReturnType<AcpRuntime['prepareRoutedPromptRequest']>>>()
+    const execute = vi.fn(
+      async (
+        input: Record<string, unknown>,
+        dispatch: (context: RoutedDispatchContext) => Promise<RoutedDispatchResult<unknown>>
+      ) => {
+        await (input.request as () => Promise<unknown>)()
+        return (await dispatch({ kind: 'legacy' })).value
+      }
+    )
+    const routedRuns = {
+      execute,
+      markSideEffectsStarted: vi.fn()
+    } as unknown as RoutedRunOrchestrator
+    const created: ReturnType<typeof createFakeRuntime>[] = []
+    const coordinator = new AcpRuntimeCoordinator(
+      (callbacks) => {
+        const fake = createFakeRuntime({
+          frameworkId: 'opencode',
+          sessionIds: ['session-1'],
+          callbacks,
+          prepareRoutedPromptRequest: async () => preparation.promise
+        })
+        created.push(fake)
+        return fake.runtime
+      },
+      {},
+      '',
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      routedRuns
+    )
+    const session = await coordinator.createSession({ projectName: 'project' })
+    const pending = coordinator.sendPrompt({ sessionId: session.sessionId, text: 'Cancel me.' })
+    await vi.waitFor(() => expect(created[0].prepareRoutedPromptRequest).toHaveBeenCalledOnce())
+
+    await coordinator.cancelPrompt({ sessionId: session.sessionId })
+    preparation.resolve({
+      request: { sessionId: session.sessionId, text: 'Cancel me.' },
+      referenceIdentities: [],
+      requiresImageInput: false
+    })
+
+    await expect(pending).resolves.toMatchObject({ stopReason: 'cancelled' })
+    expect(created[0].sendPrompt).not.toHaveBeenCalled()
+    created[0].prepareRoutedPromptRequest.mockResolvedValueOnce({
+      request: { sessionId: session.sessionId, text: 'Next.' },
+      referenceIdentities: [],
+      requiresImageInput: false
+    })
+    await expect(
+      coordinator.sendPrompt({ sessionId: session.sessionId, text: 'Next.' })
+    ).resolves.toMatchObject({
+      stopReason: 'end_turn'
+    })
+  })
+
+  it('does not let a second routed target overwrite the target awaiting activation', async () => {
+    const targetFor = (id: string): ModelTarget => ({
+      id,
+      backend: 'opencode',
+      providerId: `provider-${id}`,
+      model: `model-${id}`,
+      reasoningEffort: 'medium',
+      capabilities: ['text', 'tool_use', 'reasoning'],
+      dataBoundary: 'approved_cloud'
+    })
+    const firstTarget = targetFor('first')
+    const secondTarget = targetFor('second')
+    const firstApply = createDeferred<boolean>()
+    const execute = vi.fn(
+      async (
+        input: Record<string, unknown>,
+        dispatch: (context: RoutedDispatchContext) => Promise<RoutedDispatchResult<unknown>>
+      ) => {
+        await (input.request as () => Promise<unknown>)()
+        const isFirst = input.sessionId === 'session-1'
+        return (
+          await dispatch({
+            kind: 'routed',
+            target: isFirst ? firstTarget : secondTarget,
+            attemptId: isFirst ? 'attempt-first' : 'attempt-second',
+            sequence: 0,
+            fallback: false,
+            activate: vi.fn().mockResolvedValue(undefined)
+          })
+        ).value
+      }
+    )
+    const routedRuns = {
+      execute,
+      markSideEffectsStarted: vi.fn()
+    } as unknown as RoutedRunOrchestrator
+    const created: ReturnType<typeof createFakeRuntime>[] = []
+    const coordinator = new AcpRuntimeCoordinator(
+      (callbacks) => {
+        const fake = createFakeRuntime({
+          frameworkId: 'opencode',
+          sessionIds: ['session-1', 'session-2'],
+          callbacks
+        })
+        fake.applyModelChange.mockImplementationOnce(() => firstApply.promise)
+        created.push(fake)
+        return fake.runtime
+      },
+      {},
+      '',
+      undefined,
+      undefined,
+      undefined,
+      {},
+      undefined,
+      routedRuns,
+      async () => ({ frameworkId: 'opencode' }) as AgentModelChangeTarget
+    )
+    const firstSession = await coordinator.createSession({ projectName: 'project' })
+    const secondSession = await coordinator.createSession({ projectName: 'project' })
+
+    const first = coordinator.sendPrompt({ sessionId: firstSession.sessionId, text: 'First.' })
+    await vi.waitFor(() => expect(created[0].applyModelChange).toHaveBeenCalledOnce())
+    const second = coordinator.sendPrompt({ sessionId: secondSession.sessionId, text: 'Second.' })
+    await Promise.resolve()
+    expect(created[0].applyModelChange).toHaveBeenCalledOnce()
+
+    firstApply.resolve(true)
+    await expect(first).resolves.toMatchObject({ stopReason: 'end_turn' })
+    await expect(second).resolves.toMatchObject({ stopReason: 'end_turn' })
+    expect(created[0].applyModelChange).toHaveBeenNthCalledWith(1, {
+      frameworkId: 'opencode'
+    })
+    expect(created[0].applyModelChange).toHaveBeenCalledTimes(2)
   })
 
   it('applies an orchestrator-selected target before dispatch and records tool side effects', async () => {
@@ -423,7 +640,7 @@ describe('AcpRuntimeCoordinator', () => {
       title: 'Provider tool named skill',
       status: 'in_progress'
     })
-    expect(markSideEffectsStarted).toHaveBeenCalledWith('session-1', 'message-1')
+    expect(markSideEffectsStarted).toHaveBeenCalledWith('attempt-1')
     markSideEffectsStarted.mockClear()
 
     created[0].emitEvent({
@@ -436,7 +653,7 @@ describe('AcpRuntimeCoordinator', () => {
       title: 'Tool started',
       status: 'in_progress'
     })
-    expect(markSideEffectsStarted).toHaveBeenCalledWith('session-1', 'message-1')
+    expect(markSideEffectsStarted).toHaveBeenCalledWith('attempt-1')
   })
 
   it('emits the original user prompt when the first routed target fails before dispatch', async () => {

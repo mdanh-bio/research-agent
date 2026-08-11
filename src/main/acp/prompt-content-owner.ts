@@ -35,7 +35,7 @@ import {
   isTextLikeAttachment,
   mimeEssence
 } from './attachment-content'
-import type { FileReferenceResolver } from './file-reference-resolver'
+import type { FileReferenceResolver, ImmutableFileReference } from './file-reference-resolver'
 
 type CodexSkillInput = {
   name: string
@@ -72,6 +72,17 @@ type PreparedAcpPromptContent = {
   content: string | ContentBlock[]
   turnInputs?: AcpPromptTurnInputs
 }
+
+export type PreparedRoutedReferences = Readonly<{
+  references: readonly FileReference[]
+  identities: readonly Readonly<{
+    name: string
+    sha256: string
+    sizeBytes: number
+    versionId: string
+  }>[]
+  requiresImageInput: boolean
+}>
 
 type ResolvedPromptFile = {
   absolutePath: string
@@ -233,6 +244,35 @@ class AcpPromptContentOwner {
 
   clear(): void {
     this.sessionInlineImageBytes.clear()
+  }
+
+  async prepareRoutedReferences(input: {
+    projectId: string
+    sessionId: string
+    references: readonly FileReference[]
+  }): Promise<PreparedRoutedReferences> {
+    const resolved = await Promise.all(
+      input.references.map((reference) =>
+        this.options.fileReferenceResolver.resolveImmutable(
+          { projectId: input.projectId, sessionId: input.sessionId },
+          reference
+        )
+      )
+    )
+    return Object.freeze({
+      references: Object.freeze(resolved.map((reference) => reference.canonicalReference)),
+      identities: Object.freeze(
+        resolved.map((reference: ImmutableFileReference) =>
+          Object.freeze({
+            name: reference.name,
+            sha256: reference.sha256,
+            sizeBytes: reference.sizeBytes,
+            versionId: reference.versionId
+          })
+        )
+      ),
+      requiresImageInput: resolved.some((reference) => reference.imageInput)
+    })
   }
 
   private attachCodexSkillInputs(
