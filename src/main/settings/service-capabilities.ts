@@ -20,7 +20,8 @@ export type AcpSettingsCapabilities = Pick<
   | 'getConversationSkillImportEnabled'
   | 'listSpecialistSkillCatalog'
   | 'provisionedConnectorSkillNames'
->
+> &
+  Partial<Pick<SettingsService, 'resolveConfiguredDirectTarget'>>
 
 export type WindowSettingsCapabilities = Pick<
   SettingsService,

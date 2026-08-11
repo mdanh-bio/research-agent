@@ -55,7 +55,7 @@ export type PersistedAgentFrame = {
   parentFrameId?: string
   originMessageId?: string
   originBindingState: 'root' | 'validated' | 'legacy-unavailable'
-  kind: 'root' | 'reviewer' | 'delegate' | 'compatibility'
+  kind: 'root' | 'reviewer' | 'delegate' | 'side-question' | 'compatibility'
   agentName?: string
   delegateName?: string
   status: 'running' | 'completed' | 'cancelled' | 'error'
@@ -64,6 +64,19 @@ export type PersistedAgentFrame = {
   createdAt: number
   completedAt?: number
 }
+
+export type AgentFrameChildInput = Readonly<{
+  id: string
+  parentFrameId: string
+  originMessageId: string
+  kind: Extract<
+    PersistedAgentFrame['kind'],
+    'delegate' | 'reviewer' | 'side-question' | 'compatibility'
+  >
+  createdAt: number
+  agentName?: string
+  delegateName?: string
+}>
 
 export type PersistedConversationGraph = {
   schemaVersion: 1
@@ -652,6 +665,93 @@ export const activateConversationBranch = (
   validateConversationGraph(next)
   return next
 }
+
+// Creates a direct child Frame without changing the parent's active Frame or Branch. M2 children
+// are deliberately one level deep; provider/runtime identities are attached later by the main
+// process and never inferred from this Session projection.
+export const createChildAgentFrame = (
+  graph: PersistedConversationGraph,
+  input: AgentFrameChildInput
+): PersistedConversationGraph => {
+  const next = structuredClone(graph)
+  const frames = indexById(next.frames)
+  if (frames.has(input.id)) throw new Error(`Agent Frame already exists: ${input.id}`)
+  const parent = frames.get(input.parentFrameId)
+  if (!parent) throw new Error(`Agent Frame parent is missing: ${input.parentFrameId}`)
+  if (parent.parentFrameId) throw new Error('Grandchild Agent Frames are not supported.')
+  if (parent.status !== 'running') {
+    throw new Error('A child Agent Frame requires a running parent Frame.')
+  }
+  const parentBranch = next.branches.find((branch) => branch.id === parent.activeBranchId)
+  if (!parentBranch) throw new Error('Agent Frame parent active Branch is missing.')
+  const parentPath = resolveMessageBranchPath(next, parentBranch.id)
+  if (!parentPath.some((message) => message.id === input.originMessageId)) {
+    throw new Error('Child Agent Frame origin Message is not on the parent active Branch.')
+  }
+  const childBranchId = `${input.id}:branch`
+  if (next.branches.some((branch) => branch.id === childBranchId)) {
+    throw new Error(`Message Branch already exists: ${childBranchId}`)
+  }
+
+  next.frames.push({
+    id: input.id,
+    parentFrameId: parent.id,
+    originMessageId: input.originMessageId,
+    originBindingState: 'validated',
+    kind: input.kind,
+    agentName: input.agentName,
+    delegateName: input.delegateName,
+    status: 'running',
+    activeBranchId: childBranchId,
+    createdAt: input.createdAt
+  })
+  next.branches.push({
+    id: childBranchId,
+    agentFrameId: input.id,
+    parentBranchId: undefined,
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt
+  })
+  validateConversationGraph(next)
+  return next
+}
+
+const transitionAgentFrame = (
+  graph: PersistedConversationGraph,
+  frameId: string,
+  status: PersistedAgentFrame['status'],
+  completedAt: number
+): PersistedConversationGraph => {
+  const next = structuredClone(graph)
+  const frame = next.frames.find((candidate) => candidate.id === frameId)
+  if (!frame) throw new Error(`Agent Frame not found: ${frameId}`)
+  if (frame.status === status) return next
+  if (frame.status === 'completed' || frame.status === 'cancelled' || frame.status === 'error') {
+    throw new Error(`Agent Frame ${frameId} is already terminal.`)
+  }
+  frame.status = status
+  if (status !== 'running') frame.completedAt = completedAt
+  validateConversationGraph(next)
+  return next
+}
+
+export const completeAgentFrame = (
+  graph: PersistedConversationGraph,
+  frameId: string,
+  completedAt: number
+): PersistedConversationGraph => transitionAgentFrame(graph, frameId, 'completed', completedAt)
+
+export const cancelAgentFrame = (
+  graph: PersistedConversationGraph,
+  frameId: string,
+  cancelledAt: number
+): PersistedConversationGraph => transitionAgentFrame(graph, frameId, 'cancelled', cancelledAt)
+
+export const failAgentFrame = (
+  graph: PersistedConversationGraph,
+  frameId: string,
+  failedAt: number
+): PersistedConversationGraph => transitionAgentFrame(graph, frameId, 'error', failedAt)
 
 export const ensureConversationRuntimeSegment = (
   graph: PersistedConversationGraph,

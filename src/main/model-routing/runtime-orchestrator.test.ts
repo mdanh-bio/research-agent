@@ -119,6 +119,48 @@ describe('RoutedRunOrchestrator', () => {
     expect(ledger.beginAgentRun).not.toHaveBeenCalled()
   })
 
+  it('creates and finalizes one configured-direct root when routing is off', async () => {
+    const ledger = fakeLedger()
+    const owner = {
+      createConfiguredDirectRoot: vi.fn().mockResolvedValue({
+        graphId: 'graph-direct',
+        agentRunId: 'run-direct',
+        policySnapshotId: 'snapshot-direct',
+        frameId: 'frame-direct',
+        artifactStorageSessionId: 'artifact-session-direct',
+        policyHash: 'sha256:direct'
+      }),
+      finishRun: vi.fn().mockResolvedValue(undefined)
+    }
+    const resolver = { capture: vi.fn(async () => undefined), resolve: vi.fn() }
+    const orchestrator = new RoutedRunOrchestrator(resolver, ledger, Date.now, owner as never)
+    const request = vi.fn(() => ({ body: 'must remain outside the direct snapshot' }))
+
+    await expect(
+      orchestrator.execute(
+        {
+          ...input,
+          request,
+          directTarget: target('configured-direct')
+        },
+        async (context) => ({ value: context.kind })
+      )
+    ).resolves.toBe('legacy')
+
+    expect(request).not.toHaveBeenCalled()
+    expect(owner.createConfiguredDirectRoot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'project',
+        sessionId: 'session',
+        promptMessageId: 'message',
+        target: target('configured-direct'),
+        status: 'running'
+      })
+    )
+    expect(owner.finishRun).toHaveBeenCalledWith('run-direct', 'completed')
+    expect(ledger.beginAgentRun).not.toHaveBeenCalled()
+  })
+
   it('validates identity after capture and before creating a durable run', async () => {
     const ledger = fakeLedger()
     const resolver = createResolver()

@@ -85,6 +85,12 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
 - Fresh or already-encrypted settings no longer query macOS Keychain during legacy-credential
   migration. Secure storage is consulted only when a legacy `plain:` provider or NCBI reference is
   actually present, preventing keyless ad-hoc builds from blocking during startup.
+- M2 Stage 0/1 foundations are locally implemented behind a default-off, non-user-visible gate:
+  backend-honest delivery contracts and CAS journal transitions, additive `AgentGraph`/
+  `MessageDelivery` persistence, graph-owned routing-on/off root runs, bounded direct-child/frame
+  validation, caller-supplied main-generated Session Message IDs/parts/uploads, and explicit
+  abandoned/recoverable/dispatch-ambiguous crash outcomes. Existing M1 rows without a graph remain
+  readable legacy roots; no live Codex/OpenCode provider exercise has been run for M2.
 
 ## Verification status
 
@@ -100,6 +106,11 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   packaged smoke test. Its bundle ID/name, arm64 executable and micromamba 2.8.1 payload, Prisma
   resources/notices, strict deep ad-hoc signature, bootstrap identity, isolated storage root, and
   clean shutdown were verified. The smoke also exposed and verified the fresh-profile Keychain fix.
+- M2 Stage 0/1 local acceptance on Node `v26.3.1` and npm `11.16.0` passed typechecks, web API-map
+  validation, lint with zero errors and 13 inherited warnings, and the full Vitest suite: 907 files
+  passed and 14 skipped; 13,005 tests passed and 190 skipped. Fresh/existing/rollback-compatible
+  SQLite schema cases, graph/delivery recovery, routing-on/off root creation, and corruption checks
+  passed. No managed Codex/OpenCode binary or real provider request was available for live M2 checks.
 - Xcode 26.6 is installed, but first-launch/plugin initialization is incomplete, so the adaptive-icon
   `actool` packaging path is not certified. No DMG or ZIP release artifact has been built or verified.
 
@@ -117,8 +128,9 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   view. Session/agent pins remain an internal policy seam. Benign-refusal results stop for review
   because no production approval issuer/verifier is connected; no refusal bypass is active.
 - The Codex app-server adapter and delivery-mode contract are not connected to composer IPC or the
-  existing ACP session lifecycle. Durable OpenCode steering queues and the bounded agent graph remain
-  planned.
+  existing ACP session lifecycle. Durable OpenCode steering queues, child dispatch/approval, and
+  provider-side graph scheduling remain planned; only the bounded graph/delivery foundations are
+  locally integrated.
 - Interactive SSH is an interface, not a PTY implementation. Background SSH still uses batch mode.
   The scheduler drivers do not yet own production dispatch/polling, restart reattachment, staging, or
   checksum collection. No SSH login or Slurm command has been run.

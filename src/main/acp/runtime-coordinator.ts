@@ -22,7 +22,8 @@ import {
   DATA_BOUNDARIES,
   type DataBoundary,
   type ModelCapability,
-  type ModelTarget
+  type ModelTarget,
+  type WorkClass
 } from '../../shared/model-routing'
 import type { AcpHandoffFailure } from '../../shared/acp'
 import type { ResolvedReasoningEffort } from '../../shared/reasoning-effort'
@@ -85,6 +86,8 @@ type PermissionGrantSnapshotProvider = () => AcpStateSnapshot['permissionGrants'
 type RoutedModelChangeTargetResolver = (
   target: ModelTarget
 ) => Promise<AgentModelChangeTarget | undefined>
+
+type ConfiguredDirectTargetResolver = (workClass: WorkClass) => Promise<ModelTarget>
 
 export const routingRequestIdentity = (
   request: AcpPromptRequest,
@@ -330,7 +333,8 @@ class AcpRuntimeCoordinator {
     private readonly teardownCallbacks: AcpRuntimeCoordinatorTeardownCallbacks = {},
     private readonly permissionGrantSnapshot?: PermissionGrantSnapshotProvider,
     private readonly routedRuns?: RoutedRunOrchestrator,
-    private readonly resolveRoutedModelChangeTarget?: RoutedModelChangeTargetResolver
+    private readonly resolveRoutedModelChangeTarget?: RoutedModelChangeTargetResolver,
+    private readonly resolveConfiguredDirectTarget?: ConfiguredDirectTargetResolver
   ) {
     this.activeRuntime = this.addRuntime()
     this.lastRuntime = this.activeRuntime
@@ -814,6 +818,12 @@ class AcpRuntimeCoordinator {
         workClass: taskRequest.workClass ?? 'analysis',
         requiredCapabilities: promptRequiredCapabilities(taskRequest),
         ...(dataBoundary ? { dataBoundary } : {}),
+        ...(this.resolveConfiguredDirectTarget
+          ? {
+              directTarget: () =>
+                this.resolveConfiguredDirectTarget!(taskRequest.workClass ?? 'analysis')
+            }
+          : {}),
         request: async () => {
           if (!this.routedPromptAdmissionActive(admission)) {
             return routedRequestPreparation(taskRequest, [], false, dataBoundary)

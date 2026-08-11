@@ -5,6 +5,9 @@ import type { ProjectFilesChangedEvent, ProjectFileSource } from '../../shared/p
 import {
   materializeSessionConversationGraph,
   sanitizeSessionRuntimeContext,
+  validateMessageParts,
+  validatePersistedUploadedAttachments,
+  type MessagePart,
   type PersistedChatMessage,
   type PersistedChatSession,
   type PersistedSessionStatus,
@@ -12,6 +15,7 @@ import {
   type SessionRuntimeContext,
   type SessionRuntimeContextPatch
 } from '../../shared/session-persistence'
+import type { PersistedUploadedAttachment } from '../../shared/uploads'
 import { FinalizedArtifactBindingConflictError } from '../artifacts/provenance-message-snapshot'
 import { diagnosticErrorFields, type Logger } from '../logger'
 
@@ -35,7 +39,10 @@ type AppendUserMessageToInteractionCommand = Readonly<{
   projectId: string
   sessionId: string
   interactionId: string
+  messageId?: string
   content: string
+  parts?: MessagePart[]
+  uploads?: PersistedUploadedAttachment[]
   beforePersist?: () => void
 }>
 
@@ -325,17 +332,38 @@ class SessionPersistenceStateOwner {
     const { projectId, sessionId, interactionId } = command
     const content = command.content.trim()
     if (!content) throw new Error('User Message content must be non-empty.')
+    const messageId = command.messageId?.trim() || `message-${randomUUID()}`
+    if (
+      !messageId ||
+      messageId.length > 256 ||
+      messageId.includes('\u0000') ||
+      messageId.includes('\r') ||
+      messageId.includes('\n')
+    ) {
+      throw new Error('User Message id must be a bounded identifier.')
+    }
+    const parts = validateMessageParts(command.parts)
+    const uploads = validatePersistedUploadedAttachments(command.uploads)
     this.options.assertMutable(projectId, sessionId, 'mutate')
     const session = await this.loadRuntimeContextSession(projectId, sessionId, 'patch')
+    const materialized = materializeSessionConversationGraph(session)
+    if (
+      materialized.messages.some((candidate) => candidate.id === messageId) ||
+      materialized.conversationGraph?.messages.some((candidate) => candidate.id === messageId)
+    ) {
+      throw new Error(`User Message already exists: ${messageId}`)
+    }
     command.beforePersist?.()
     const timestamp = Math.max(session.updatedAt + 1, Date.now())
     const message: PersistedChatMessage = {
-      id: `message-${randomUUID()}`,
+      id: messageId,
       role: 'user',
       content,
       status: 'complete',
       eventIds: [],
       responseToMessageId: interactionId,
+      ...(parts && parts.length > 0 ? { parts } : {}),
+      ...(uploads && uploads.length > 0 ? { uploads } : {}),
       createdAt: timestamp,
       updatedAt: timestamp
     }

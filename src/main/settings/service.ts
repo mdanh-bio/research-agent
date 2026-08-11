@@ -498,6 +498,37 @@ class SettingsService {
     })
   }
 
+  // Secret-free identity used by the M2 graph owner when transparent routing is off. This records
+  // the exact configured backend/provider/model without claiming that a routed fallback occurred.
+  async resolveConfiguredDirectTarget(workClass: WorkClass = 'analysis'): Promise<ModelTarget> {
+    const routed = await this.resolveConfiguredRoute(workClass)
+    if (routed) return routed.decision.target
+
+    const settings = await this.migrateLegacyKeyRefs(await this.repository.getSettings())
+    const selection = await this.backendResolver.captureConfiguredSelection()
+    const providerId = settings.activeProviderId
+    const provider = settings.providers.find((candidate) => candidate.id === providerId)
+    const model = settings.activeModel ?? provider?.model ?? provider?.fetchedModels?.[0]
+    if (!providerId || !provider || !model) {
+      throw new Error('A configured provider and model are required for a direct Agent Run root.')
+    }
+    const capabilities: ModelTarget['capabilities'] = [
+      'text',
+      'tool_use',
+      ...(provider.supportsImageInput ? ['image_input' as const] : [])
+    ]
+    return Object.freeze({
+      id: `configured-direct:${selection.frameworkId}:${providerId}:${model}`,
+      backend: selection.frameworkId,
+      providerId,
+      model,
+      reasoningEffort: settings.reasoningEffort ?? 'default',
+      capabilities: Object.freeze(capabilities),
+      dataBoundary: 'any_configured',
+      ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {})
+    })
+  }
+
   // Projects one of the app's five stable user-intent slots through the active model's static effort
   // profile. This is intentionally async only because settings are read from disk; capability lookup
   // is synchronous and never performs provider discovery or a network request.

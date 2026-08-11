@@ -117,6 +117,15 @@ describe('ModelRoutingLedger', () => {
       runtimeThreadId: 'thread-1',
       ephemeral: false
     })
+    await expect(
+      ledger.linkRuntimeThread({
+        agentRunId: run.agentRunId,
+        appSessionId: 'session-1',
+        backend: 'codex',
+        runtimeThreadId: 'thread-1',
+        ephemeral: false
+      })
+    ).rejects.toThrow()
     await ledger.finishAgentRun(run.agentRunId, 'completed')
 
     await expect(ledger.finishModelAttempt(attemptId, { result: 'cancelled' })).rejects.toThrow(

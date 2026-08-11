@@ -1,4 +1,5 @@
 import type { AgentFrameworkId, ReasoningEffort } from './settings'
+import type { AgentGraphKind, AgentObservedUsage, AgentRunBudget } from './agent-graph'
 
 export const WORK_CLASSES = [
   'interaction_router',
@@ -113,6 +114,10 @@ export type AgentTaskReference = Readonly<{
 
 export type AgentRun = Readonly<{
   id: string
+  graphId?: string
+  frameId?: string
+  runKind?: AgentGraphKind
+  depth?: number
   parentAgentRunId?: string
   policySnapshotId: string
   task: AgentTaskReference
@@ -121,10 +126,17 @@ export type AgentRun = Readonly<{
   runtime: AgentFrameworkId
   status: AgentRunStatus
   budget?: RouteBudget
+  artifactStorageSessionId?: string
+  observedBudget?: AgentObservedUsage | AgentRunBudget
+  cancelRequestedAt?: number
+  cancelledAt?: number
+  safeFailureCode?: string
   outputArtifactIds: readonly string[]
   createdAt: number
   startedAt?: number
   finishedAt?: number
+  updatedAt?: number
+  revision?: number
 }>
 
 export type ModelFailureCategory =
