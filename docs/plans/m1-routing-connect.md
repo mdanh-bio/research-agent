@@ -133,10 +133,10 @@ the user turns routing on.
   `resolveRouteDecision(request, layers)` -> `SettingsService.resolveRoutedAgentBackend(decision)`
   and records the attempt through `RoutingLedger` (begin run, begin attempt as
   `reserved`, activate immediately before dispatch, finish with result/usage).
-- Wire availability fallback: on eligible triggers (timeout, rate limit, provider
-  unavailable, malformed response) re-resolve with the failed target id in
-  `excludedTargetIds`, capped at `MAX_AUTOMATIC_ALTERNATES` (2). Replay only before
-  any side-effecting tool call; after effects begin, hand off instead of auto-replay.
+- Wire availability fallback only while an attempt remains `reserved`: an unavailable target can
+  re-resolve with its id in `excludedTargetIds`, capped at `MAX_AUTOMATIC_ALTERNATES` (2).
+  Immediately before `session.prompt()`, activate the ledger attempt. Every later provider failure
+  fails closed because persistent-session replay cannot prove a clean input.
 - Benign-refusal fallback stays fail-closed: it fires only with the scope-bound,
   single-use approval evidence and configured verifier already required by
   `fallback-policy.ts`/`ledger.ts`. No new bypass.
@@ -167,8 +167,8 @@ the user turns routing on.
   secret embedding.
 - Deterministic precedence: pin > project > user > shipped default resolves the
   expected target across representative work classes.
-- Fallback acceptance: each eligible trigger produces the expected ordered alternate,
-  stops after two, and refuses replay after a recorded side effect.
+- Fallback acceptance: reserved target failures produce the expected ordered alternate, stop after
+  two, and every activated provider failure makes exactly one provider call.
 - Ledger integration: begin/reserve/activate/finish lifecycle persists all provenance
   fields and invalidates a stale reservation when a late side effect is marked.
 - UI render tests: Off vs Active states, effective-route rendering, no secret leakage
@@ -186,8 +186,8 @@ the user turns routing on.
 
 Exit B: routing can be switched on for a run, the effective route is visible in
 Settings, decisions and attempts are persisted with full provenance and no secrets,
-availability + vetted-refusal fallbacks behave per contract, default-off behavior is
-unchanged, and B6 tests plus Phase A checks pass.
+pre-dispatch availability fallback behaves per contract, benign refusals stop for review without a
+production verifier, default-off behavior is unchanged, and B6 tests plus Phase A checks pass.
 
 ---
 

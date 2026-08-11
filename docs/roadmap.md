@@ -18,9 +18,12 @@ its exit checks pass on the supported Apple-Silicon development environment.
 - Add model catalog, route policies/snapshots, route decision UI, and immutable attempt ledger.
 - Ship visible Research Max, balanced, and economy profiles.
 - Enforce capability and `local_only` / `approved_cloud` / `any_configured` data boundaries.
-- Implement availability fallback and vetted refusal fallback with side-effect replay guards.
+- Implement ordered pre-dispatch target fallback. Once provider dispatch may have begun, fail closed;
+  approved benign-refusal replay remains deferred until a production approval issuer/verifier exists.
 - Default telemetry/export off and label runtime isolation accurately.
-- Exit: deterministic precedence and fallback acceptance tests; no secret values in policy/attempt data.
+- Exit: deterministic precedence, immutable-input, admission/cancellation, and pre-dispatch fallback
+  acceptance tests; no secret values in policy/attempt data. Live-provider and package verification
+  are reported separately.
 
 ## M2 — Steering and bounded multi-agent work
 

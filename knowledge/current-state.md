@@ -43,16 +43,18 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
 - Routing-policy, agent-run, model-attempt, and runtime-thread-link tables plus a ledger owner. The
   ledger computes domain-separated request digests from request bytes rather than accepting caller
   hashes, binds complete provider/model/backend/capability/data-boundary targets and policy budgets to
-  the persisted decision, and uses reserve/activate attempt states so late recorded side effects can
-  invalidate a fallback reservation. Benign-refusal fallback fails closed without scope-bound,
-  single-use approval evidence and a configured approval verifier.
+  the persisted decision, and uses reserve/activate attempt states. Automatic alternate selection is
+  limited to a reserved, pre-dispatch target; exact-attempt side effects and all activated failures
+  fail closed. Benign-refusal fallback fails closed without scope-bound, single-use approval evidence
+  and a configured approval verifier.
 - An opt-in transparent-routing path now connects configured model targets, persisted
   Research Max/Balanced/Economy selection, policy precedence, the ACP prompt lifecycle, provider
-  model switching, attempt reservation/activation/finalization, bounded availability fallback, and
-  the local routing ledger. Routing is absent/off by default. Settings shows concrete effective
+  model switching, attempt reservation/activation/finalization, bounded pre-dispatch target fallback,
+  and the local routing ledger. Routing is absent/off by default. Settings shows concrete effective
   provider/model/reasoning/boundary/source choices, labels the preview as the user default, and keeps
-  external telemetry/export off and unavailable. Routed attachment replay requires immutable SHA-256
-  identities; user cancellation and tool-side-effect guards stop automatic fallback fail closed.
+  external telemetry/export off and unavailable. Routed `@` references require immutable verified
+  Version identities; user cancellation and tool-side-effect guards stop automatic fallback fail
+  closed.
 - A direct Codex app-server JSONL client and process adapter for stable thread/turn operations,
   read-only side-question forks, steering, interruption, and replacement. Experimental APIs,
   arbitrary RPC, shell-command access, full-access sandboxing, approval bypasses, unsafe CLI flags,
@@ -98,14 +100,15 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   packaged smoke test. Its bundle ID/name, arm64 executable and micromamba 2.8.1 payload, Prisma
   resources/notices, strict deep ad-hoc signature, bootstrap identity, isolated storage root, and
   clean shutdown were verified. The smoke also exposed and verified the fresh-profile Keychain fix.
-- The default adaptive-icon packaging path requires full Xcode 26 `actool`, which is not installed on
-  this Mac. No DMG or ZIP release artifact has been built or verified.
+- Xcode 26.6 is installed, but first-launch/plugin initialization is incomplete, so the adaptive-icon
+  `actool` packaging path is not certified. No DMG or ZIP release artifact has been built or verified.
 
 ## Not yet connected or live-verified
 
 - Transparent routing is locally integrated and deterministically tested, but no real provider
-  request or provider-to-provider fallback has been executed in this phase, and no packaged-app
-  routing journey was run. Loopback URL shape is not proof of local inference: custom endpoints remain
+  request or target-fallback path has been executed in this phase, and no packaged-app routing journey
+  was run. M1 intentionally has no provider-to-provider post-dispatch replay. Loopback URL shape is
+  not proof of local inference: custom endpoints remain
   `any_configured`, and `local_only` work fails closed until a genuinely declared local target exists.
   The current catalog treats framework-compatible configured providers as tool-capable; there is no
   separate per-model tool-support declaration yet.
