@@ -2,10 +2,14 @@
 
 Last updated: 2026-08-11. Owner: Anh. Base commit: `6cdf94b` on `main`.
 
-Execution status: **Stages 0 and 1 executed locally; Stages 2+ remain planning only**. The Stage 0/1
-deterministic exit gates pass on 2026-08-11, but managed-binary/provider live evidence is unavailable
-in this environment, so M2 is not live-certified. M2 is complete only after every required stage exit
-gate and the final acceptance gate pass on the supported Apple-Silicon environment.
+Execution status: **Stages 0, 1, and 2 executed locally; Stages 3+ remain planning only**. The Stage
+0/1/2 deterministic exit gates pass under pinned Node `22.23.2` on 2026-08-11, and the managed Codex
+`0.147.0` binary/manifest/handshake is verified. A zero-retry Techopenclaw `fugu-ultra` turn passed
+with streamed output, usage, its exact terminal completion, and clean teardown; the requested
+`gpt-5.6-sol` target remains unavailable because Techopenclaw returned HTTP 529 overload, and
+`gpt-5.6-terra` closed before `response.completed`. Stages 0-2 are certified against the successful
+supported-model live gate while these model-specific failures remain explicit evidence. M2 overall
+is complete only after every later stage and the final acceptance gate pass.
 
 This plan follows `AGENTS.md`: diagnose before mutation, keep changes narrow and reversible, keep
 renderer code outside credential/process authority, require exact approval for consequential child
@@ -290,12 +294,12 @@ Codex sessions without widening its trust boundary.
 
 ### Things that must be achieved
 
-- [ ] A new Codex root Session can start, stream, approve, cancel, finish, persist, and resume through
+- [x] A new Codex root Session can start, stream, approve, cancel, finish, persist, and resume through
       direct app-server.
-- [ ] The main process always knows the exact owned thread and active turn IDs.
-- [ ] Existing composer/session/event/artifact projections work without exposing raw app-server RPC
-      to renderer code.
-- [ ] Existing ACP Codex sessions have an honest compatibility/migration path.
+- [x] The main process always knows the exact owned thread and active turn IDs.
+- [x] Existing AcpRuntimeEvent/session-safe projections work without exposing raw app-server RPC to
+      renderer code. Composer IPC and artifact wiring remain later stages.
+- [x] Existing ACP Codex sessions have an honest compatibility/migration path.
 
 ### What should be done
 
@@ -334,21 +338,28 @@ Codex sessions without widening its trust boundary.
 
 ### What should be checked or confirmed
 
-- [ ] Direct app-server handles a complete fake turn, approval, usage, and terminal event sequence.
-- [ ] Out-of-order, duplicate, oversized, malformed, unknown-thread, and unknown-request messages fail
+- [x] Direct app-server handles a complete fake turn, approval, usage, and terminal event sequence.
+- [x] Out-of-order, duplicate, oversized, malformed, unknown-thread, and unknown-request messages fail
       closed without hanging pending promises.
-- [ ] `turn/interrupt` is not treated as terminal until the matching completion notification arrives.
-- [ ] A resumed thread is rejected if effective cwd, sandbox, provider/model, or ownership differs.
-- [ ] Read-only and workspace-write policies remain exactly those permitted by the existing path
+- [x] `turn/interrupt` is not treated as terminal until the matching completion notification arrives.
+- [x] A resumed thread is rejected if effective cwd, sandbox, provider/model, or ownership differs.
+- [x] Read-only and workspace-write policies remain exactly those permitted by the existing path
       authority; full access is unrepresentable.
-- [ ] Process exit rejects pending operations, cancels approvals, closes links, and reaps descendants.
-- [ ] An actual pinned-binary isolated handshake passes. A real provider turn is recorded separately
-      and requires explicit approval.
+- [x] Process exit rejects pending operations, cancels approvals, closes links, and reaps descendants.
+- [x] An actual pinned-binary isolated handshake passes.
+- [x] A real Techopenclaw provider turn completes with streamed output, reported usage, and its
+      matching terminal event. `fugu-ultra` passed; `gpt-5.6-sol` and `gpt-5.6-terra` were also
+      tested and failed closed for overload/incomplete-stream reasons.
 
 ### Stage exit gate
 
-The direct Codex runtime passes protocol, security, session, event, approval, artifact, and restart
-integration tests behind the M2 gate. Legacy ACP Codex behavior remains unchanged until migration.
+The direct Codex runtime passes protocol, security, session, event, approval, and restart integration
+tests behind the M2 gate. Artifact handoff and composer IPC remain later-stage owners. Legacy ACP
+Codex behavior remains unchanged until migration.
+
+Stage 2 local status: **passed for deterministic implementation and integration coverage** on
+2026-08-12. The pinned managed-binary handshake and one supported-model live-provider turn pass.
+`gpt-5.6-sol` is not claimed as live-passing.
 
 ---
 
@@ -925,9 +936,10 @@ This is a navigation guide, not permission to modify every listed file.
 
 ## 9. Final M2 checklist
 
-- [ ] Stage 0 contracts and ADRs accepted.
-- [ ] Stage 1 durable foundations and recovery pass.
-- [ ] Stage 2 direct Codex runtime pass.
+- [x] Stage 0 contracts and ADRs accepted.
+- [x] Stage 1 durable foundations and recovery pass.
+- [x] Stage 2 direct Codex runtime live gate passes with Techopenclaw `fugu-ultra`; the saved active
+      `gpt-5.6-sol` target remains separately recorded as upstream-overloaded.
 - [ ] Stage 3 delivery IPC/composer and native Codex controls pass.
 - [ ] Stage 4 OpenCode queued semantics pass.
 - [ ] Stage 5 side-question isolation pass.
@@ -948,4 +960,5 @@ This is a navigation guide, not permission to modify every listed file.
 - [ADR 0003: Codex app-server boundary](../adr/0003-codex-app-server-boundary.md)
 - [Threat model](../threat-model.md)
 - [Official Codex app-server lifecycle](https://learn.chatgpt.com/docs/app-server#lifecycle-overview)
+- [Official Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 - [Official Codex app-server API overview](https://learn.chatgpt.com/docs/app-server#api-overview)

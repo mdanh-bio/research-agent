@@ -20,6 +20,11 @@ type DeliveryClientProvider = () => Promise<PrismaClient>
 
 export type CreateMessageDeliveryInput = MessageDeliveryRequest
 
+export type PreparedMessageDelivery = Readonly<{
+  delivery: MessageDeliveryProjection
+  created: boolean
+}>
+
 export type TransitionMessageDeliveryOptions = Readonly<{
   expectedRevision?: number
   resolved?: ResolvedMessageDeliveryMode
@@ -47,6 +52,42 @@ const routerMetadataJson = (
     ...(metadata.modelId ? { modelId: metadata.modelId } : {}),
     ...(metadata.reasonCode ? { reasonCode: metadata.reasonCode } : {})
   })
+}
+
+const isUniqueConstraintError = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  (error as { code?: unknown }).code === 'P2002'
+
+const nullable = (value: string | undefined): string | null => value ?? null
+
+const assertMatchingPreparedDelivery = (
+  row: Parameters<typeof toProjection>[0],
+  request: MessageDeliveryRequest,
+  graphId: string,
+  resolvedMode: ResolvedMessageDeliveryMode,
+  decisionSource: MessageDeliveryDecisionSource
+): void => {
+  const expectedRouterMetadata = routerMetadataJson(request.routerMetadata) ?? null
+  if (
+    row.id !== request.id ||
+    row.projectId !== request.projectId ||
+    row.sessionId !== request.sessionId ||
+    row.messageId !== request.messageId ||
+    row.graphId !== graphId ||
+    row.targetRootRunId !== request.targetRootRunId ||
+    row.targetPromptMessageId !== request.targetPromptMessageId ||
+    row.backend !== nullable(request.backend) ||
+    (request.runtimeThreadId !== undefined && row.runtimeThreadId !== request.runtimeThreadId) ||
+    (request.runtimeTurnId !== undefined && row.runtimeTurnId !== request.runtimeTurnId) ||
+    row.requestedMode !== request.requested ||
+    row.resolvedMode !== resolvedMode ||
+    row.decisionSource !== decisionSource ||
+    row.routerMetadataJson !== expectedRouterMetadata
+  ) {
+    throw new Error('Message Delivery retry identity conflicts with the durable journal row.')
+  }
 }
 
 const parseRouterMetadata = (value: string | null): MessageDeliveryRouterMetadata | undefined => {
@@ -146,6 +187,10 @@ class MessageDeliveryJournal {
   constructor(private readonly getClient: DeliveryClientProvider) {}
 
   async prepare(input: CreateMessageDeliveryInput): Promise<MessageDeliveryProjection> {
+    return (await this.prepareOnce(input)).delivery
+  }
+
+  async prepareOnce(input: CreateMessageDeliveryInput): Promise<PreparedMessageDelivery> {
     const request = validateMessageDeliveryRequest(input)
     const decision = resolveMessageDelivery({
       requested: request.requested,
@@ -154,53 +199,104 @@ class MessageDeliveryJournal {
       confidenceThreshold: request.confidenceThreshold
     })
     const client = await this.getClient()
-    const createdAt = new Date()
-    return client.$transaction(async (transaction) => {
-      const rootRun = await transaction.agentRun.findUnique({
-        where: { id: request.targetRootRunId }
-      })
-      if (!rootRun || !rootRun.graphId || rootRun.runKind !== 'root' || rootRun.parentAgentRunId) {
-        throw new Error('Message Delivery target root Agent Run is missing or legacy.')
-      }
-      const graph = await transaction.agentGraph.findUnique({ where: { id: rootRun.graphId } })
-      if (
-        !graph ||
-        graph.projectId !== request.projectId ||
-        graph.sessionId !== request.sessionId ||
-        graph.rootPromptMessageId !== rootRun.promptMessageId
-      ) {
-        throw new Error('Message Delivery target graph is missing or out of scope.')
-      }
-      const last = await transaction.messageDelivery.findFirst({
-        where: { sessionId: request.sessionId },
-        orderBy: { sequence: 'desc' },
-        select: { sequence: true }
-      })
-      const sequence = (last?.sequence ?? -1) + 1
-      const row = await transaction.messageDelivery.create({
-        data: {
-          id: request.id,
-          projectId: request.projectId,
-          sessionId: request.sessionId,
-          messageId: request.messageId,
-          graphId: graph.id,
-          targetRootRunId: request.targetRootRunId,
-          targetPromptMessageId: request.targetPromptMessageId,
-          backend: request.backend,
-          runtimeThreadId: request.runtimeThreadId,
-          runtimeTurnId: request.runtimeTurnId,
-          requestedMode: request.requested,
-          resolvedMode: decision.resolved,
-          decisionSource: decision.source,
-          routerMetadataJson: routerMetadataJson(request.routerMetadata),
-          sequence,
-          lifecycle: 'preparing',
-          createdAt,
-          revision: 1
+    const prepareInTransaction = async (): Promise<PreparedMessageDelivery> =>
+      client.$transaction(async (transaction) => {
+        const rootRun = await transaction.agentRun.findUnique({
+          where: { id: request.targetRootRunId }
+        })
+        if (
+          !rootRun ||
+          !rootRun.graphId ||
+          rootRun.runKind !== 'root' ||
+          rootRun.parentAgentRunId
+        ) {
+          throw new Error('Message Delivery target root Agent Run is missing or legacy.')
         }
+        const graph = await transaction.agentGraph.findUnique({ where: { id: rootRun.graphId } })
+        if (
+          !graph ||
+          graph.projectId !== request.projectId ||
+          graph.sessionId !== request.sessionId ||
+          graph.rootPromptMessageId !== rootRun.promptMessageId
+        ) {
+          throw new Error('Message Delivery target graph is missing or out of scope.')
+        }
+        if (request.targetPromptMessageId !== rootRun.promptMessageId) {
+          throw new Error(
+            'Message Delivery message identity does not match its target root prompt.'
+          )
+        }
+        const existing = await transaction.messageDelivery.findFirst({
+          where: {
+            OR: [{ id: request.id }, { sessionId: request.sessionId, messageId: request.messageId }]
+          }
+        })
+        if (existing) {
+          assertMatchingPreparedDelivery(
+            existing,
+            request,
+            graph.id,
+            decision.resolved,
+            decision.source
+          )
+          return Object.freeze({ delivery: toProjection(existing), created: false })
+        }
+        const last = await transaction.messageDelivery.findFirst({
+          where: { sessionId: request.sessionId },
+          orderBy: { sequence: 'desc' },
+          select: { sequence: true }
+        })
+        const sequence = (last?.sequence ?? -1) + 1
+        const createdAt = new Date()
+        const row = await transaction.messageDelivery.create({
+          data: {
+            id: request.id,
+            projectId: request.projectId,
+            sessionId: request.sessionId,
+            messageId: request.messageId,
+            graphId: graph.id,
+            targetRootRunId: request.targetRootRunId,
+            targetPromptMessageId: request.targetPromptMessageId,
+            backend: request.backend,
+            runtimeThreadId: request.runtimeThreadId,
+            runtimeTurnId: request.runtimeTurnId,
+            requestedMode: request.requested,
+            resolvedMode: decision.resolved,
+            decisionSource: decision.source,
+            routerMetadataJson: routerMetadataJson(request.routerMetadata),
+            sequence,
+            lifecycle: 'preparing',
+            createdAt,
+            revision: 1
+          }
+        })
+        return Object.freeze({ delivery: toProjection(row), created: true })
       })
-      return toProjection(row)
-    })
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await prepareInTransaction()
+      } catch (error) {
+        if (!isUniqueConstraintError(error) || attempt === 2) throw error
+        const raced = await client.messageDelivery.findFirst({
+          where: {
+            OR: [{ id: request.id }, { sessionId: request.sessionId, messageId: request.messageId }]
+          }
+        })
+        if (!raced) continue
+        const rootRun = await client.agentRun.findUnique({ where: { id: request.targetRootRunId } })
+        if (!rootRun?.graphId) throw error
+        assertMatchingPreparedDelivery(
+          raced,
+          request,
+          rootRun.graphId,
+          decision.resolved,
+          decision.source
+        )
+        return Object.freeze({ delivery: toProjection(raced), created: false })
+      }
+    }
+    throw new Error('Message Delivery preparation retry limit was exhausted.')
   }
 
   async get(deliveryId: string): Promise<MessageDeliveryProjection> {

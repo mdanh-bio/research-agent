@@ -347,11 +347,23 @@ class SessionPersistenceStateOwner {
     this.options.assertMutable(projectId, sessionId, 'mutate')
     const session = await this.loadRuntimeContextSession(projectId, sessionId, 'patch')
     const materialized = materializeSessionConversationGraph(session)
-    if (
-      materialized.messages.some((candidate) => candidate.id === messageId) ||
-      materialized.conversationGraph?.messages.some((candidate) => candidate.id === messageId)
-    ) {
-      throw new Error(`User Message already exists: ${messageId}`)
+    const existing =
+      materialized.messages.find((candidate) => candidate.id === messageId) ??
+      materialized.conversationGraph?.messages.find((candidate) => candidate.id === messageId)
+    if (existing) {
+      const expectedParts = parts && parts.length > 0 ? parts : undefined
+      const expectedUploads = uploads && uploads.length > 0 ? uploads : undefined
+      if (
+        existing.role !== 'user' ||
+        existing.content !== content ||
+        existing.status !== 'complete' ||
+        existing.responseToMessageId !== interactionId ||
+        JSON.stringify(existing.parts) !== JSON.stringify(expectedParts) ||
+        JSON.stringify(existing.uploads) !== JSON.stringify(expectedUploads)
+      ) {
+        throw new Error(`User Message retry conflicts with durable Message: ${messageId}`)
+      }
+      return structuredClone(existing)
     }
     command.beforePersist?.()
     const timestamp = Math.max(session.updatedAt + 1, Date.now())

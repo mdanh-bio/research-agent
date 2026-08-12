@@ -246,10 +246,25 @@ const RUNTIME_THREAD_LINK_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "RuntimeThread
     "runtimeThreadId" TEXT NOT NULL,
     "parentRuntimeThreadId" TEXT,
     "ephemeral" BOOLEAN NOT NULL DEFAULT false,
+    "runtimeOwner" TEXT,
+    "authorizedCwd" TEXT,
+    "sandbox" TEXT,
+    "model" TEXT,
+    "modelProvider" TEXT,
+    "approvalPolicy" TEXT,
+    "approvalsReviewer" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "closedAt" DATETIME,
     CONSTRAINT "RuntimeThreadLink_agentRunId_fkey" FOREIGN KEY ("agentRunId") REFERENCES "AgentRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );`
+
+const RUNTIME_THREAD_LINK_ADD_RUNTIME_OWNER_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "runtimeOwner" TEXT`
+const RUNTIME_THREAD_LINK_ADD_AUTHORIZED_CWD_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "authorizedCwd" TEXT`
+const RUNTIME_THREAD_LINK_ADD_SANDBOX_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "sandbox" TEXT`
+const RUNTIME_THREAD_LINK_ADD_MODEL_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "model" TEXT`
+const RUNTIME_THREAD_LINK_ADD_MODEL_PROVIDER_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "modelProvider" TEXT`
+const RUNTIME_THREAD_LINK_ADD_APPROVAL_POLICY_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "approvalPolicy" TEXT`
+const RUNTIME_THREAD_LINK_ADD_APPROVALS_REVIEWER_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "approvalsReviewer" TEXT`
 
 const MODEL_ROUTING_INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS "RoutingPolicySnapshot_projectId_sessionId_createdAt_idx" ON "RoutingPolicySnapshot"("projectId", "sessionId", "createdAt")`,
@@ -271,7 +286,9 @@ const MODEL_ROUTING_INDEX_DDLS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "RuntimeThreadLink_backend_runtimeThreadId_key" ON "RuntimeThreadLink"("backend", "runtimeThreadId")`,
   `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_agentRunId_idx" ON "RuntimeThreadLink"("agentRunId")`,
   `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_appSessionId_createdAt_idx" ON "RuntimeThreadLink"("appSessionId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_runtimeOwner_closedAt_idx" ON "RuntimeThreadLink"("runtimeOwner", "closedAt")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "MessageDelivery_sessionId_sequence_key" ON "MessageDelivery"("sessionId", "sequence")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "MessageDelivery_sessionId_messageId_key" ON "MessageDelivery"("sessionId", "messageId")`,
   `CREATE INDEX IF NOT EXISTS "MessageDelivery_projectId_sessionId_createdAt_idx" ON "MessageDelivery"("projectId", "sessionId", "createdAt")`,
   `CREATE INDEX IF NOT EXISTS "MessageDelivery_graphId_lifecycle_idx" ON "MessageDelivery"("graphId", "lifecycle")`,
   `CREATE INDEX IF NOT EXISTS "MessageDelivery_targetRootRunId_idx" ON "MessageDelivery"("targetRootRunId")`
@@ -847,6 +864,43 @@ const ensureProjectSchema = async (client: PrismaClient): Promise<void> => {
     MODEL_ATTEMPT_ADD_FALLBACK_APPROVAL_JSON_DDL
   )
   await client.$executeRawUnsafe(RUNTIME_THREAD_LINK_TABLE_DDL)
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'runtimeOwner',
+    RUNTIME_THREAD_LINK_ADD_RUNTIME_OWNER_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'authorizedCwd',
+    RUNTIME_THREAD_LINK_ADD_AUTHORIZED_CWD_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'sandbox',
+    RUNTIME_THREAD_LINK_ADD_SANDBOX_DDL
+  )
+  await addColumnIfMissing(client, 'RuntimeThreadLink', 'model', RUNTIME_THREAD_LINK_ADD_MODEL_DDL)
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'modelProvider',
+    RUNTIME_THREAD_LINK_ADD_MODEL_PROVIDER_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'approvalPolicy',
+    RUNTIME_THREAD_LINK_ADD_APPROVAL_POLICY_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'approvalsReviewer',
+    RUNTIME_THREAD_LINK_ADD_APPROVALS_REVIEWER_DDL
+  )
   await client.$executeRawUnsafe(MESSAGE_DELIVERY_TABLE_DDL)
   await addColumnIfMissing(client, 'MessageDelivery', 'revision', MESSAGE_DELIVERY_ADD_REVISION_DDL)
   for (const ddl of MODEL_ROUTING_INDEX_DDLS) {

@@ -14,7 +14,14 @@ must not weaken these safety, provenance, or authorization requirements.
 7. Treat approval as authorization and sandboxing as isolation. Never describe approval-only
    execution, including OpenCode execution, as sandboxed.
 8. Require exact, single-use user approval before every remote compute submission or consequential
-   external action. Display the resolved target and resources before asking.
+   external action. Display the resolved target and resources before asking. The sole standing
+   exception is a Techopenclaw model-validation call made with the user's configured encrypted
+   credential: it may proceed without per-call approval only when the provider is exactly
+   `https://api.techopenclaw.com/v1`, the model is in the validated saved catalog, calls are
+   serialized one at a time, HTTP and stream retries are both zero, input is minimal text only, the
+   sandbox is read-only in an isolated temporary cwd, and attachments, tools, fallback, other model
+   calls, shared-workspace writes, and credential/prompt logging are prohibited. Any broader
+   Techopenclaw use still requires exact approval.
 9. Before accessing OneDrive-backed inputs, inspect metadata for `dataless` placeholders. Hydrate only
    explicitly selected files; never recursively materialize or automatically evict a tree.
 10. Ground scientific claims in traceable evidence. Resolve citations, report uncertainty and
@@ -36,4 +43,5 @@ must not weaken these safety, provenance, or authorization requirements.
   updates and never merge an upstream release directly into the working branch.
 - Do not commit generated secrets, local `.research-agent/` workspace state, or runtime databases.
 - Normal verification is `npm run typecheck` plus focused Vitest suites. Packaging or live remote
-  tests require the relevant environment and explicit authorization.
+  tests require the relevant environment and explicit authorization, except for the narrowly scoped
+  Techopenclaw validation exception in rule 8.

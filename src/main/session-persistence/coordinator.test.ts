@@ -285,6 +285,39 @@ describe('SessionPersistenceCoordinator', () => {
     expect(durable.status).toBe('waiting-plan-approval')
   })
 
+  it('returns an exact caller-owned Message retry without writing twice and rejects identity drift', async () => {
+    let durable = createSession()
+    const repository = createSessionRepository({
+      loadSessionWithDiagnostics: vi.fn(async () => ({
+        status: 'found' as const,
+        session: durable
+      })),
+      saveSession: vi.fn(async (session) => {
+        durable = structuredClone(session)
+      })
+    })
+    const coordinator = new SessionPersistenceCoordinator(repository, createFileIndex())
+    const command = {
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      interactionId: 'interaction-1',
+      messageId: 'message-stable-1',
+      content: 'Stable retried instruction.',
+      parts: [{ type: 'text' as const, text: 'Stable retried instruction.' }]
+    }
+
+    const first = await coordinator.appendUserMessageToInteraction(command)
+    const second = await coordinator.appendUserMessageToInteraction(command)
+
+    expect(second).toEqual(first)
+    expect(durable.messages.filter((message) => message.id === command.messageId)).toHaveLength(1)
+    expect(repository.saveSession).toHaveBeenCalledTimes(1)
+    await expect(
+      coordinator.appendUserMessageToInteraction({ ...command, content: 'Changed instruction.' })
+    ).rejects.toThrow('retry conflicts')
+    expect(durable.messages.filter((message) => message.id === command.messageId)).toHaveLength(1)
+  })
+
   it('does not persist Plan feedback when its interaction commit precondition fails', async () => {
     const durable = createSession({
       status: 'waiting-plan-approval',

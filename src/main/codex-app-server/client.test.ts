@@ -4,7 +4,14 @@ import { dirname, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CodexAppServerClient, CodexAppServerRpcError } from './client'
+import {
+  CODEX_APP_SERVER_REQUEST_TIMEOUT_MS,
+  MAX_CODEX_APP_SERVER_JSONL_BYTES,
+  MAX_CODEX_APP_SERVER_NOTIFICATION_BYTES,
+  CodexAppServerClient,
+  CodexAppServerRpcError
+} from './client'
+import { CODEX_APP_SERVER_OPTOUT_NOTIFICATION_METHODS } from './notification-projector'
 import type { CodexAppServerTransport } from './types'
 
 class FakeTransport implements CodexAppServerTransport {
@@ -137,7 +144,10 @@ describe('CodexAppServerClient', () => {
             title: 'Research Agent',
             version: '0.1.0'
           },
-          capabilities: { experimentalApi: false }
+          capabilities: {
+            experimentalApi: false,
+            optOutNotificationMethods: CODEX_APP_SERVER_OPTOUT_NOTIFICATION_METHODS
+          }
         }
       }
     ])
@@ -195,7 +205,10 @@ describe('CodexAppServerClient', () => {
             title: 'Research Agent',
             version: '0.1.0'
           },
-          capabilities: { experimentalApi: false }
+          capabilities: {
+            experimentalApi: false,
+            optOutNotificationMethods: CODEX_APP_SERVER_OPTOUT_NOTIFICATION_METHODS
+          }
         }
       }
     ])
@@ -901,6 +914,84 @@ describe('CodexAppServerClient', () => {
     await expect(pending).rejects.toThrow('process exited')
     await client.close()
     expect(transport.closeCalls).toBe(1)
+  })
+
+  it('redacts structured RPC error data while retaining the stable code and message', async () => {
+    const transport = new FakeTransport()
+    const client = clientFor(transport)
+    await initialize(client, transport)
+
+    const failed = client.listThreads()
+    transport.receive({
+      id: 1,
+      error: {
+        code: -32_001,
+        message: 'provider request failed api_key=secret-token',
+        data: { apiKey: 'secret-token' }
+      }
+    })
+
+    await expect(failed).rejects.toMatchObject({
+      code: -32_001,
+      message: 'provider request failed api_key=[redacted]',
+      data: undefined
+    } satisfies Partial<CodexAppServerRpcError>)
+  })
+
+  it('fails closed on unknown responses and oversized protocol payloads', async () => {
+    const scenarios = [
+      {
+        message: JSON.stringify({ id: 999, result: {} }),
+        expected: 'unknown Codex app-server request id'
+      },
+      {
+        message: 'x'.repeat(MAX_CODEX_APP_SERVER_JSONL_BYTES + 1),
+        expected: 'JSONL message exceeds the size limit'
+      },
+      {
+        message: JSON.stringify({
+          method: 'turn/started',
+          params: {
+            threadId: 'thread-1',
+            text: 'x'.repeat(MAX_CODEX_APP_SERVER_NOTIFICATION_BYTES)
+          }
+        }),
+        expected: 'notification exceeds the size limit'
+      }
+    ]
+
+    for (const scenario of scenarios) {
+      const transport = new FakeTransport()
+      const client = clientFor(transport)
+      await initialize(client, transport)
+      const errors: string[] = []
+      client.onProtocolError((error) => errors.push(error.message))
+      const pending = client.listThreads()
+      transport.receive(scenario.message)
+      await expect(pending).rejects.toThrow(scenario.expected)
+      expect(errors).toEqual([expect.stringContaining(scenario.expected)])
+      expect(client.isInitialized()).toBe(false)
+    }
+  })
+
+  it('bounds pending requests and fails a timed-out request closed', async () => {
+    const transport = new FakeTransport()
+    const timers: Array<() => void> = []
+    const client = clientFor(transport, {
+      maxPendingRequests: 1,
+      requestTimeoutMs: CODEX_APP_SERVER_REQUEST_TIMEOUT_MS,
+      setTimer: (fn) => {
+        timers.push(fn)
+        return timers.length as unknown as ReturnType<typeof setTimeout>
+      },
+      clearTimer: vi.fn()
+    })
+    await initialize(client, transport)
+    const pending = client.listThreads()
+    await expect(client.listThreads()).rejects.toThrow('pending-request limit')
+    timers.at(-1)?.()
+    await expect(pending).rejects.toThrow('request thread/list timed out')
+    expect(client.isInitialized()).toBe(false)
   })
 
   it('surfaces malformed server output without logging or throwing it through request state', async () => {

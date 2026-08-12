@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import type { MessagePart, PersistedChatMessage } from '../../shared/session-persistence'
 import type { PersistedUploadedAttachment } from '../../shared/uploads'
 import type { MessageDeliveryMode, MessageDeliveryProjection } from '../../shared/message-delivery'
@@ -25,7 +23,8 @@ export type PrepareM2PromptInput = Readonly<{
   sessionId: string
   content: string
   interactionId?: string
-  messageId?: string
+  messageId: string
+  deliveryId: string
   requestedMode: MessageDeliveryMode
   hasActiveTurn: boolean
   target: ModelTarget
@@ -55,7 +54,7 @@ class M2PromptPersistenceOwner {
   ) {}
 
   async prepare(input: PrepareM2PromptInput): Promise<PreparedM2Prompt> {
-    const messageId = input.messageId ?? `message-${randomUUID()}`
+    const messageId = input.messageId
     const root = await this.graph.createConfiguredDirectRoot({
       projectId: input.projectId,
       sessionId: input.sessionId,
@@ -66,8 +65,8 @@ class M2PromptPersistenceOwner {
       budget: input.budget,
       status: 'running'
     })
-    const delivery = await this.deliveries.prepare({
-      id: `delivery-${randomUUID()}`,
+    const preparedDelivery = await this.deliveries.prepareOnce({
+      id: input.deliveryId,
       projectId: input.projectId,
       sessionId: input.sessionId,
       messageId,
@@ -92,16 +91,20 @@ class M2PromptPersistenceOwner {
         uploads: input.uploads
       })
     } catch (error) {
-      await this.deliveries
-        .reconcile(delivery.id, { hasSessionMessage: false })
-        .catch(() => undefined)
-      await this.graph
-        .finishRun(root.agentRunId, 'blocked', { safeFailureCode: 'session_message_missing' })
-        .catch(() => undefined)
+      if (preparedDelivery.created) {
+        await this.deliveries
+          .reconcile(preparedDelivery.delivery.id, { hasSessionMessage: false })
+          .catch(() => undefined)
+        await this.graph
+          .finishRun(root.agentRunId, 'blocked', { safeFailureCode: 'session_message_missing' })
+          .catch(() => undefined)
+      }
       throw error
     }
 
-    const promoted = await this.deliveries.reconcile(delivery.id, { hasSessionMessage: true })
+    const promoted = await this.deliveries.reconcile(preparedDelivery.delivery.id, {
+      hasSessionMessage: true
+    })
     return Object.freeze({ message, root, delivery: promoted })
   }
 }

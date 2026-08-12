@@ -4,6 +4,7 @@ import type {
   CodexApprovalHandler,
   CodexApprovalRequest
 } from './types'
+import type { AcpPermissionSettlementState } from '../../shared/acp'
 
 type JsonRecord = Record<string, unknown>
 
@@ -12,6 +13,11 @@ type ApprovalResponseWriter = (
   response:
     | Readonly<{ result: Readonly<{ decision: CodexApprovalDecision }> }>
     | Readonly<{ error: Readonly<{ code: number; message: string }> }>
+) => void
+
+type ApprovalSettlementHandler = (
+  requestId: CodexAppServerRequestId,
+  state: AcpPermissionSettlementState
 ) => void
 
 const COMMAND_APPROVAL_METHOD = 'item/commandExecution/requestApproval'
@@ -121,6 +127,7 @@ const isApprovalDecision = (value: unknown): value is CodexApprovalDecision =>
 // JSON-RPC responder or permission to amend Codex's execution policy.
 export class CodexApprovalBroker {
   private handler?: CodexApprovalHandler
+  private settlementHandler?: ApprovalSettlementHandler
   private closed = false
   private readonly pending = new Map<string, CodexAppServerRequestId>()
 
@@ -136,6 +143,20 @@ export class CodexApprovalBroker {
     return () => {
       if (this.handler === handler) this.handler = undefined
     }
+  }
+
+  setSettlementHandler(handler: ApprovalSettlementHandler): () => void {
+    if (this.closed) throw new Error('Codex approval broker is closed.')
+    if (this.settlementHandler)
+      throw new Error('Codex approval broker already has a settlement handler.')
+    this.settlementHandler = handler
+    return () => {
+      if (this.settlementHandler === handler) this.settlementHandler = undefined
+    }
+  }
+
+  private settle(id: CodexAppServerRequestId, state: AcpPermissionSettlementState): void {
+    this.settlementHandler?.(id, state)
   }
 
   dispatch(id: CodexAppServerRequestId, method: string, params: unknown): void {
@@ -191,18 +212,23 @@ export class CodexApprovalBroker {
       .then(() => handler(request))
       .then((decision) => {
         if (!this.pending.delete(key)) return
-        this.writeResponse(id, {
-          result: { decision: isApprovalDecision(decision) ? decision : 'decline' }
-        })
+        const normalized = isApprovalDecision(decision) ? decision : 'decline'
+        this.writeResponse(id, { result: { decision: normalized } })
+        this.settle(
+          id,
+          normalized === 'accept' ? 'resolved' : normalized === 'cancel' ? 'cancelled' : 'rejected'
+        )
       })
       .catch(() => {
         if (!this.pending.delete(key)) return
         this.writeResponse(id, { result: { decision: 'decline' } })
+        this.settle(id, 'rejected')
       })
   }
 
   markResolved(id: CodexAppServerRequestId): void {
-    this.pending.delete(`${typeof id}:${String(id)}`)
+    if (!this.pending.delete(`${typeof id}:${String(id)}`)) return
+    this.settle(id, 'cancelled')
   }
 
   close(respondToPending = true): void {
@@ -211,8 +237,10 @@ export class CodexApprovalBroker {
     for (const [key, id] of this.pending) {
       this.pending.delete(key)
       if (respondToPending) this.writeResponse(id, { result: { decision: 'cancel' } })
+      this.settle(id, 'cancelled')
     }
     this.handler = undefined
+    this.settlementHandler = undefined
   }
 }
 

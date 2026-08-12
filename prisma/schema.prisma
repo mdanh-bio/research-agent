@@ -601,6 +601,13 @@ model RuntimeThreadLink {
   runtimeThreadId       String
   parentRuntimeThreadId String?
   ephemeral             Boolean   @default(false)
+  runtimeOwner          String?
+  authorizedCwd         String?
+  sandbox               String?
+  model                 String?
+  modelProvider         String?
+  approvalPolicy        String?
+  approvalsReviewer     String?
   createdAt             DateTime  @default(now())
   closedAt              DateTime?
   agentRun              AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
@@ -608,6 +615,7 @@ model RuntimeThreadLink {
   @@unique([backend, runtimeThreadId])
   @@index([agentRunId])
   @@index([appSessionId, createdAt])
+  @@index([runtimeOwner, closedAt])
 }
 
 // Durable delivery metadata. The authoritative user Message remains in Session JSON; this table
@@ -636,6 +644,7 @@ model MessageDelivery {
   graph                 AgentGraph @relation(fields: [graphId], references: [id], onDelete: Restrict)
 
   @@unique([sessionId, sequence])
+  @@unique([sessionId, messageId])
   @@index([projectId, sessionId, createdAt])
   @@index([graphId, lifecycle])
   @@index([targetRootRunId])

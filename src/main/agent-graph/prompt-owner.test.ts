@@ -71,6 +71,7 @@ describe('M2PromptPersistenceOwner', () => {
       content: 'private prompt content stays in Session JSON',
       interactionId: 'interaction-1',
       messageId: 'message-main-1',
+      deliveryId: 'delivery-main-1',
       requestedMode: 'auto',
       hasActiveTurn: false,
       target,
@@ -104,6 +105,7 @@ describe('M2PromptPersistenceOwner', () => {
         sessionId: 'session-1',
         content: 'will not be acknowledged',
         messageId: 'message-failed',
+        deliveryId: 'delivery-failed',
         requestedMode: 'auto',
         hasActiveTurn: false,
         target,
@@ -160,6 +162,7 @@ describe('M2PromptPersistenceOwner', () => {
         sessionId: 'session-1',
         content: 'durable before promotion',
         messageId: 'message-recovery',
+        deliveryId: 'delivery-recovery',
         requestedMode: 'auto',
         hasActiveTurn: true,
         target,
@@ -172,7 +175,68 @@ describe('M2PromptPersistenceOwner', () => {
 
     promotion.mockRestore()
     await expect(
-      journal.reconcile(pending.id, { hasSessionMessage: sessionMessageDurable })
-    ).resolves.toMatchObject({ lifecycle: 'queued' })
+      owner.prepare({
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        content: 'durable before promotion',
+        messageId: 'message-recovery',
+        deliveryId: 'delivery-recovery',
+        requestedMode: 'auto',
+        hasActiveTurn: true,
+        target,
+        workClass: 'analysis'
+      })
+    ).resolves.toMatchObject({
+      root: { agentRunId: expect.any(String) },
+      delivery: { id: pending.id, lifecycle: 'queued' }
+    })
+    await expect(client!.messageDelivery.count()).resolves.toBe(1)
+    await expect(client!.agentRun.findFirst()).resolves.toMatchObject({ status: 'running' })
+  })
+
+  it('rejects a conflicting retry without mutating the durable delivery or root', async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), 'research-agent-m2-prompt-conflict-'))
+    client = createProjectDbClient(storageRoot)
+    await ensureProjectSchema(client)
+    const graph = new AgentGraphOwner(async () => client!)
+    const journal = new MessageDeliveryJournal(async () => client!)
+    const sessions = {
+      appendUserMessageToInteraction: async (command: {
+        interactionId: string
+        messageId: string
+        content: string
+      }): Promise<PersistedChatMessage> => ({
+        id: command.messageId,
+        role: 'user',
+        content: command.content,
+        status: 'complete',
+        eventIds: [],
+        responseToMessageId: command.interactionId,
+        createdAt: 1,
+        updatedAt: 1
+      })
+    }
+    const owner = new M2PromptPersistenceOwner(graph, journal, sessions)
+    const base = {
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      content: 'original instruction',
+      interactionId: 'interaction-1',
+      messageId: 'message-conflict',
+      deliveryId: 'delivery-conflict',
+      requestedMode: 'auto' as const,
+      hasActiveTurn: false,
+      target,
+      workClass: 'analysis' as const
+    }
+    await owner.prepare(base)
+
+    await expect(owner.prepare({ ...base, requestedMode: 'side-question' })).rejects.toThrow(
+      'retry identity conflicts'
+    )
+    await expect(
+      client!.messageDelivery.findUniqueOrThrow({ where: { id: base.deliveryId } })
+    ).resolves.toMatchObject({ lifecycle: 'queued', requestedMode: 'auto' })
+    await expect(client!.agentRun.findFirst()).resolves.toMatchObject({ status: 'running' })
   })
 })

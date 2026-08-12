@@ -113,9 +113,63 @@ describe('project prisma client (integration)', () => {
     expect(indexes.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
         'MessageDelivery_sessionId_sequence_key',
+        'MessageDelivery_sessionId_messageId_key',
         'MessageDelivery_graphId_lifecycle_idx'
       ])
     )
+    const runtimeLinkColumns = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info("RuntimeThreadLink")'
+    )
+    expect(runtimeLinkColumns.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'runtimeOwner',
+        'authorizedCwd',
+        'sandbox',
+        'model',
+        'modelProvider',
+        'approvalPolicy',
+        'approvalsReviewer'
+      ])
+    )
+  })
+
+  it('adds direct Codex resume authority fields to a legacy RuntimeThreadLink table', async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), 'open-science-m2-runtime-link-migration-'))
+    const client = createProjectDbClient(storageRoot)
+    disconnect = () => client.$disconnect()
+
+    await ensureProjectSchema(client)
+    await client.$executeRawUnsafe('PRAGMA foreign_keys = OFF')
+    await client.$executeRawUnsafe('DROP TABLE "RuntimeThreadLink"')
+    await client.$executeRawUnsafe(`CREATE TABLE "RuntimeThreadLink" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "agentRunId" TEXT NOT NULL,
+      "appSessionId" TEXT NOT NULL,
+      "backend" TEXT NOT NULL,
+      "runtimeThreadId" TEXT NOT NULL,
+      "parentRuntimeThreadId" TEXT,
+      "ephemeral" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "closedAt" DATETIME
+    )`)
+    await client.$executeRawUnsafe('PRAGMA foreign_keys = ON')
+
+    await ensureProjectSchema(client)
+    const columns = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info("RuntimeThreadLink")'
+    )
+    expect(columns.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'runtimeOwner',
+        'authorizedCwd',
+        'sandbox',
+        'model',
+        'modelProvider',
+        'approvalPolicy',
+        'approvalsReviewer'
+      ])
+    )
+    await expect(ensureProjectSchema(client)).resolves.toBeUndefined()
   })
 
   it('keeps a pre-M2 AgentRun readable as a legacy run after the additive schema upgrade', async () => {

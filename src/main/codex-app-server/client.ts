@@ -1,4 +1,5 @@
 import { CodexApprovalBroker } from './approval-broker'
+import { CODEX_APP_SERVER_OPTOUT_NOTIFICATION_METHODS } from './notification-projector'
 import { CodexPathAuthority } from './path-authority'
 import type {
   CodexAppServerClientInfo,
@@ -15,10 +16,12 @@ import type {
   CodexTurnStartParams,
   CodexTurnSteerParams
 } from './types'
+import type { AcpPermissionSettlementState } from '../../shared/acp'
 
 type PendingRequest = {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
+  timeout?: ReturnType<typeof setTimeout>
 }
 
 type JsonRecord = Record<string, unknown>
@@ -33,6 +36,11 @@ type AllowedRequestMethod =
   | 'turn/start'
   | 'turn/steer'
   | 'turn/interrupt'
+
+export const MAX_CODEX_APP_SERVER_JSONL_BYTES = 2 * 1024 * 1024
+export const MAX_CODEX_APP_SERVER_NOTIFICATION_BYTES = 1 * 1024 * 1024
+export const MAX_CODEX_APP_SERVER_PENDING_REQUESTS = 128
+export const CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = 30_000
 
 const THREAD_START_KEYS = new Set([
   'model',
@@ -85,6 +93,15 @@ const isRecord = (value: unknown): value is JsonRecord =>
 
 const isRequestId = (value: unknown): value is CodexAppServerRequestId =>
   typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value))
+
+const safeProtocolErrorText = (value: string): string =>
+  value
+    .slice(0, 2_048)
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|auth(?:orization)?|bearer|client[_-]?secret|password|secret|token)\b\s*[:=]\s*[^\s,;]+/gi,
+      '$1=[redacted]'
+    )
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
 
 const requireRecord = (value: unknown, method: string): JsonRecord => {
   if (isRecord(value)) return value
@@ -486,6 +503,7 @@ export class CodexAppServerClient {
     (notification: CodexAppServerNotification) => void
   >()
   private readonly protocolErrorListeners = new Set<(error: CodexAppServerProtocolError) => void>()
+  private readonly closeListeners = new Set<(error?: Error) => void>()
   private readonly removeLineListener: () => void
   private readonly removeCloseListener: () => void
   private nextRequestId = 0
@@ -494,6 +512,10 @@ export class CodexAppServerClient {
   private readonly pathAuthority: CodexPathAuthority
   private readonly defaultCwd: string
   private readonly ownedThreadIds: Set<string>
+  private readonly maxPendingRequests: number
+  private readonly requestTimeoutMs: number
+  private readonly setTimer: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+  private readonly clearTimer: (handle: ReturnType<typeof setTimeout>) => void
   readonly approvals: CodexApprovalBroker
 
   constructor(
@@ -503,6 +525,14 @@ export class CodexAppServerClient {
       defaultCwd: string
       workspaceWriteRoots?: readonly string[]
       ownedThreadIds?: readonly string[]
+      maxPendingRequests?: number
+      requestTimeoutMs?: number
+      onApprovalSettled?: (
+        requestId: CodexAppServerRequestId,
+        state: AcpPermissionSettlementState
+      ) => void
+      setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+      clearTimer?: (handle: ReturnType<typeof setTimeout>) => void
     }>
   ) {
     this.#transport = transport
@@ -516,10 +546,25 @@ export class CodexAppServerClient {
         requireNonEmptyString(threadId, 'owned thread', 'threadId')
       )
     )
+    this.maxPendingRequests = options.maxPendingRequests ?? MAX_CODEX_APP_SERVER_PENDING_REQUESTS
+    this.requestTimeoutMs = options.requestTimeoutMs ?? CODEX_APP_SERVER_REQUEST_TIMEOUT_MS
+    if (
+      !Number.isSafeInteger(this.maxPendingRequests) ||
+      this.maxPendingRequests < 1 ||
+      this.maxPendingRequests > MAX_CODEX_APP_SERVER_PENDING_REQUESTS
+    ) {
+      throw new Error('Codex app-server pending-request limit is invalid.')
+    }
+    if (!Number.isSafeInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 1) {
+      throw new Error('Codex app-server request timeout is invalid.')
+    }
+    this.setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
+    this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle))
     this.approvals = new CodexApprovalBroker(
       (id, response) => this.#write({ id, ...response }),
       (threadId) => this.ownedThreadIds.has(threadId)
     )
+    if (options.onApprovalSettled) this.approvals.setSettlementHandler(options.onApprovalSettled)
     this.removeLineListener = transport.onLine((line) => this.handleLine(line))
     this.removeCloseListener = transport.onClose((error) => this.handleClose(error))
   }
@@ -528,13 +573,28 @@ export class CodexAppServerClient {
     return this.initialized
   }
 
+  hasOwnedThread(threadId: string): boolean {
+    return this.ownedThreadIds.has(requireNonEmptyString(threadId, 'owned thread', 'threadId'))
+  }
+
+  registerOwnedThread(threadId: string): void {
+    this.ownedThreadIds.add(requireNonEmptyString(threadId, 'owned thread', 'threadId'))
+  }
+
+  unregisterOwnedThread(threadId: string): void {
+    this.ownedThreadIds.delete(requireNonEmptyString(threadId, 'owned thread', 'threadId'))
+  }
+
   async initialize(clientInfo: CodexAppServerClientInfo): Promise<CodexAppServerInitializeResult> {
     if (this.initialized) throw new Error('Codex app-server client is already initialized.')
     const result = await this.#sendRequest<CodexAppServerInitializeResult>(
       'initialize',
       {
         clientInfo,
-        capabilities: { experimentalApi: false }
+        capabilities: {
+          experimentalApi: false,
+          optOutNotificationMethods: CODEX_APP_SERVER_OPTOUT_NOTIFICATION_METHODS
+        }
       },
       true
     )
@@ -684,8 +744,19 @@ export class CodexAppServerClient {
     return () => this.protocolErrorListeners.delete(listener)
   }
 
+  onClose(listener: (error?: Error) => void): () => void {
+    this.closeListeners.add(listener)
+    return () => this.closeListeners.delete(listener)
+  }
+
   setApprovalHandler(handler: CodexApprovalHandler): () => void {
     return this.approvals.setHandler(handler)
+  }
+
+  setApprovalSettlementHandler(
+    handler: (requestId: CodexAppServerRequestId, state: AcpPermissionSettlementState) => void
+  ): () => void {
+    return this.approvals.setSettlementHandler(handler)
   }
 
   async close(): Promise<void> {
@@ -702,16 +773,25 @@ export class CodexAppServerClient {
     allowBeforeInitialization: boolean
   ): Promise<Result> {
     this.assertUsable(method, allowBeforeInitialization)
+    if (this.pending.size >= this.maxPendingRequests) {
+      throw new Error('Codex app-server pending-request limit has been reached.')
+    }
     const id = this.nextRequestId++
     return new Promise<Result>((resolve, reject) => {
-      this.pending.set(id, {
+      const pending: PendingRequest = {
         resolve: (value) => resolve(value as Result),
         reject
-      })
+      }
+      this.pending.set(id, pending)
+      pending.timeout = this.setTimer(() => {
+        if (this.pending.get(id) !== pending) return
+        this.failClosed(new Error(`Codex app-server request ${method} timed out.`))
+      }, this.requestTimeoutMs)
       try {
         this.#write({ method, id, ...(params === undefined ? {} : { params }) })
       } catch (error) {
         this.pending.delete(id)
+        if (pending.timeout !== undefined) this.clearTimer(pending.timeout)
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
@@ -759,40 +839,62 @@ export class CodexAppServerClient {
   }
 
   #write(message: JsonRecord): void {
-    this.#transport.write(`${JSON.stringify(message)}\n`)
+    const line = `${JSON.stringify(message)}\n`
+    if (Buffer.byteLength(line, 'utf8') > MAX_CODEX_APP_SERVER_JSONL_BYTES) {
+      throw new Error('Codex app-server outbound JSONL message exceeds the size limit.')
+    }
+    this.#transport.write(line)
   }
 
   private handleLine(line: string): void {
     const trimmed = line.trim()
     if (!trimmed) return
+    if (Buffer.byteLength(trimmed, 'utf8') > MAX_CODEX_APP_SERVER_JSONL_BYTES) {
+      this.failClosed(new Error('Codex app-server JSONL message exceeds the size limit.'))
+      return
+    }
     let message: unknown
     try {
       message = JSON.parse(trimmed)
     } catch (cause) {
-      this.emitProtocolError({ message: 'Invalid JSON from Codex app-server.', line, cause })
+      this.failClosed(new Error('Invalid JSON from Codex app-server.'), { cause })
       return
     }
     if (!isRecord(message)) {
-      this.emitProtocolError({ message: 'Non-object message from Codex app-server.', line })
+      this.failClosed(new Error('Non-object message from Codex app-server.'))
       return
+    }
+    if ('params' in message) {
+      const serializedParams = JSON.stringify(message.params)
+      if (
+        typeof serializedParams === 'string' &&
+        Buffer.byteLength(serializedParams, 'utf8') > MAX_CODEX_APP_SERVER_NOTIFICATION_BYTES
+      ) {
+        this.failClosed(new Error('Codex app-server notification exceeds the size limit.'))
+        return
+      }
     }
 
     if (isRequestId(message.id) && ('result' in message || 'error' in message)) {
       const pending = this.pending.get(message.id)
       if (!pending) {
-        this.emitProtocolError({
-          message: `Response for unknown Codex app-server request id ${String(message.id)}.`
-        })
+        this.failClosed(
+          new Error(`Response for unknown Codex app-server request id ${String(message.id)}.`)
+        )
         return
       }
       this.pending.delete(message.id)
+      if (pending.timeout !== undefined) this.clearTimer(pending.timeout)
       if (isRecord(message.error)) {
         const code = typeof message.error.code === 'number' ? message.error.code : -32_000
         const text =
           typeof message.error.message === 'string'
-            ? message.error.message
+            ? safeProtocolErrorText(message.error.message)
             : 'Codex app-server request failed.'
-        pending.reject(new CodexAppServerRpcError(code, text, message.error.data))
+        // Provider error data can contain request fragments, credentials, or local paths. The
+        // stable RPC code/message are enough for runtime classification; raw server data stays at
+        // the protocol boundary and never enters application error state.
+        pending.reject(new CodexAppServerRpcError(code, text))
       } else {
         pending.resolve(message.result)
       }
@@ -820,11 +922,17 @@ export class CodexAppServerClient {
       return
     }
 
-    this.emitProtocolError({ message: 'Unrecognized message from Codex app-server.', line })
+    this.failClosed(new Error('Unrecognized message from Codex app-server.'))
   }
 
   private emitProtocolError(error: CodexAppServerProtocolError): void {
     for (const listener of this.protocolErrorListeners) listener(error)
+  }
+
+  private failClosed(error: Error, details: Pick<CodexAppServerProtocolError, 'cause'> = {}): void {
+    this.emitProtocolError({ message: error.message, ...details })
+    this.handleClose(error)
+    void this.#transport.close().catch(() => undefined)
   }
 
   private handleClose(error?: Error): void {
@@ -835,7 +943,12 @@ export class CodexAppServerClient {
     this.removeLineListener()
     this.removeCloseListener()
     const closeError = error ?? new Error('Codex app-server transport closed.')
-    for (const pending of this.pending.values()) pending.reject(closeError)
+    for (const pending of this.pending.values()) {
+      if (pending.timeout !== undefined) this.clearTimer(pending.timeout)
+      pending.reject(closeError)
+    }
     this.pending.clear()
+    for (const listener of this.closeListeners) listener(error)
+    this.closeListeners.clear()
   }
 }

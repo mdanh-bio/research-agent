@@ -110,7 +110,7 @@ describe('MessageDeliveryJournal', () => {
     expect(rows.map((row) => row.sequence)).toEqual([0, 1, 2])
   })
 
-  it('uses compare-and-set lifecycle transitions and rejects duplicate delivery identity', async () => {
+  it('uses compare-and-set lifecycle transitions and keeps exact retries idempotent', async () => {
     const { root, journal } = await setup()
     const prepared = await journal.prepare(request(root.agentRunId, 'delivery-1'))
     await expect(
@@ -129,6 +129,30 @@ describe('MessageDeliveryJournal', () => {
       runtimeTurnId: 'turn-1'
     })
     await expect(journal.transition(dispatched.id, 'failed')).rejects.toThrow(/cannot transition/i)
-    await expect(journal.prepare(request(root.agentRunId, 'delivery-1'))).rejects.toThrow()
+    await expect(journal.prepare(request(root.agentRunId, 'delivery-1'))).resolves.toMatchObject({
+      id: 'delivery-1',
+      lifecycle: 'completed'
+    })
+    await expect(
+      journal.prepare({
+        ...request(root.agentRunId, 'delivery-conflict'),
+        messageId: 'message-1'
+      })
+    ).rejects.toThrow('retry identity conflicts')
+  })
+
+  it('coalesces concurrent exact preparation into one durable delivery row', async () => {
+    const { root, journal } = await setup()
+    const input = request(root.agentRunId, 'delivery-concurrent')
+
+    const prepared = await Promise.all([journal.prepareOnce(input), journal.prepareOnce(input)])
+
+    expect(prepared.map(({ created }) => created).sort()).toEqual([false, true])
+    expect(prepared[0].delivery.id).toBe(prepared[1].delivery.id)
+    await expect(
+      client!.messageDelivery.count({
+        where: { sessionId: input.sessionId, messageId: input.messageId }
+      })
+    ).resolves.toBe(1)
   })
 })
