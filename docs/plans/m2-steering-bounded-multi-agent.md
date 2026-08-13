@@ -976,15 +976,16 @@ This is a navigation guide, not permission to modify every listed file.
 - [x] Stage 1 durable foundations and recovery pass.
 - [x] Stage 2 direct Codex runtime live gate passes with Techopenclaw `fugu-ultra`; the saved active
       `gpt-5.6-sol` target remains separately recorded as upstream-overloaded.
-- [ ] Stage 3 delivery IPC/composer and native Codex controls pass.
-- [ ] Stage 4 OpenCode queued semantics pass.
-- [ ] Stage 5 side-question isolation pass.
+- [x] Stage 3 delivery IPC/composer and native Codex controls pass deterministically.
+- [x] Stage 4 OpenCode queued semantics pass deterministically.
+- [x] Stage 5 side-question isolation passes deterministically for Codex and OpenCode adapters.
 - [ ] Stage 6 bounded graph, approvals, and concurrency pass.
 - [ ] Stage 7 artifact isolation and lineage pass.
 - [ ] Stage 8 cancellation/budget/restart fault matrix pass.
 - [ ] Stage 9 UI/accessibility/security review pass.
 - [ ] Stage 10 full, live, and unpacked-app acceptance pass.
-- [ ] `knowledge/current-state.md` reports only the evidence actually observed.
+- [x] `knowledge/current-state.md` reports the Stage 2-5 evidence actually observed while preserving
+      the live OpenCode, packaged-app, and later-stage deferrals.
 - [ ] M3, M4, and M5 remain unchanged and separately gated.
 
 ## References

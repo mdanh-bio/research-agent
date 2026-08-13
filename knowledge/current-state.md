@@ -175,6 +175,19 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   The saved active model remained `gpt-5.6-sol`. Separate zero-retry probes recorded
   `gpt-5.6-sol` HTTP 529 overload and `gpt-5.6-terra` stream closure before `response.completed`;
   neither failure is reported as a successful model certification.
+- On 2026-08-13, M2 Stages 2-5 were reverified from detached commit `f3c095a` under pinned Node
+  `v22.23.2` and npm `10.9.8`. Stage 2 focused coverage passed 8 files/64 tests; Stages 3-5 focused
+  coverage passed 20 files/480 tests; the clean full Vitest suite passed 915 files with 14 skipped
+  and 13,066 tests with 190 skipped. Prisma format/validate/generate, node/web typechecks, Web API
+  map, Claude ACP patch integrity, CLI 37/37, private-package guards 10/10, production build,
+  supported-file Prettier checks, `git diff --check`, and the scoped credential scan passed. ESLint
+  reported zero errors and 13 inherited warnings. The prior concurrent completion-gate timeout did
+  not recur.
+- The same final check ran exactly one serialized zero-retry Techopenclaw `grok-4.5` direct-runtime
+  turn through pinned Codex `0.147.0`. It emitted three streamed assistant events/four characters,
+  matching terminal `completed`, usage of 7,568 input and 38 output tokens, zero tools, approvals, or
+  protocol errors, and clean thread/link/process/temporary-cwd teardown in 27,142 ms. The saved active
+  model remained `gpt-5.6-sol`; no retry, fallback, GLM, or DeepSeek call occurred.
 - Xcode 26.6 is installed, but first-launch/plugin initialization is incomplete, so the adaptive-icon
   `actool` packaging path is not certified. No DMG or ZIP release artifact has been built or verified.
 
