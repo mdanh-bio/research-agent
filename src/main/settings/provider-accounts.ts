@@ -1036,10 +1036,10 @@ class ProviderAccountsModule {
     if (isCodexSubscriptionProvider(provider.type)) {
       return getOfficialVendorModelIds('openai')
     }
+    if (provider.fetchedModels && provider.fetchedModels.length > 0) {
+      return [...new Set(provider.fetchedModels)]
+    }
     if (provider.type === 'official' && provider.vendorId) {
-      if (provider.fetchedModels && provider.fetchedModels.length > 0) {
-        return provider.fetchedModels
-      }
       return getOfficialVendorModelIds(provider.vendorId)
     }
     return provider.model ? [provider.model] : []

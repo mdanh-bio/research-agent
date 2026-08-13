@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest'
 import type { PersistedChatMessage } from './session-persistence'
 import {
   activateConversationBranch,
+  cancelAgentFrame,
+  completeAgentFrame,
   createLinearConversationGraph,
+  createChildAgentFrame,
   ensureConversationRuntimeSegment,
+  failAgentFrame,
   forkConversationAfterActivity,
   forkEditedConversationMessage,
   getActiveConversationContext,
@@ -466,5 +470,65 @@ describe('conversation graph', () => {
 
     const visibleAgain = activateConversationBranch(hidden, originalBranchId)
     expect(visibleAgain.activeFrameId).toBe(hidden.rootFrameId)
+  })
+
+  it('creates and settles a direct child Frame without switching the parent active branch', () => {
+    const graph = createLinearConversationGraph({
+      sessionId: 'session-1',
+      messages: [message('u1', 'user', 'stable parent context', 1)],
+      frameworkId: 'codex',
+      createdAt: 1,
+      updatedAt: 1
+    })
+    const activeGraph = structuredClone(graph)
+    activeGraph.frames[0].status = 'running'
+    const child = createChildAgentFrame(activeGraph, {
+      id: 'child-frame',
+      parentFrameId: graph.rootFrameId,
+      originMessageId: 'u1',
+      kind: 'delegate',
+      createdAt: 2
+    })
+    expect(child.activeFrameId).toBe(activeGraph.activeFrameId)
+    expect(child.frames.find((frame) => frame.id === 'child-frame')).toMatchObject({
+      parentFrameId: graph.rootFrameId,
+      originMessageId: 'u1',
+      status: 'running'
+    })
+    expect(() =>
+      createChildAgentFrame(child, {
+        id: 'grandchild-frame',
+        parentFrameId: 'child-frame',
+        originMessageId: 'u1',
+        kind: 'delegate',
+        createdAt: 3
+      })
+    ).toThrow(/Grandchild/)
+    const completed = completeAgentFrame(child, 'child-frame', 4)
+    expect(completed.frames.find(({ id }) => id === 'child-frame')?.status).toBe('completed')
+    expect(() => cancelAgentFrame(completed, 'child-frame', 5)).toThrow(/already terminal/)
+    const cancellable = createChildAgentFrame(activeGraph, {
+      id: 'cancel-frame',
+      parentFrameId: graph.rootFrameId,
+      originMessageId: 'u1',
+      kind: 'side-question',
+      createdAt: 5
+    })
+    expect(
+      cancelAgentFrame(cancellable, 'cancel-frame', 6).frames.find(
+        ({ id }) => id === 'cancel-frame'
+      )?.status
+    ).toBe('cancelled')
+    const failed = createChildAgentFrame(activeGraph, {
+      id: 'failed-frame',
+      parentFrameId: graph.rootFrameId,
+      originMessageId: 'u1',
+      kind: 'delegate',
+      createdAt: 7
+    })
+    expect(
+      failAgentFrame(failed, 'failed-frame', 8).frames.find(({ id }) => id === 'failed-frame')
+        ?.status
+    ).toBe('error')
   })
 })

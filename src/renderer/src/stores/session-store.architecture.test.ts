@@ -914,7 +914,8 @@ describe('Session Store architecture', () => {
       'setPermissionProfile',
       'setSessionSpecialistId',
       'togglePinned',
-      'updateSessionArchive'
+      'updateSessionArchive',
+      'upsertSideQuestion'
     ])
     expect(ownerTypeProperties('session-store-persistence-owner.ts', 'SessionStoreData')).toEqual([
       'selectedSessionId',
@@ -922,7 +923,12 @@ describe('Session Store architecture', () => {
     ])
     expect(
       ownerTypeProperties('session-store-persistence-owner.ts', 'SessionPersistenceActions')
-    ).toEqual(['applyDurableSessionProjection', 'hydrateSessions', 'upsertPersistedSession'])
+    ).toEqual([
+      'applyDurableSessionProjection',
+      'applyMainOwnedUserMessage',
+      'hydrateSessions',
+      'upsertPersistedSession'
+    ])
     expect(
       ownerTypeProperties('session-store-message-graph-helpers.ts', 'SessionMessageGraphActions')
     ).toEqual([

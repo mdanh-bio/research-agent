@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveMessageDelivery } from './message-delivery'
+import {
+  resolveMessageDelivery,
+  validateMessageDeliveryRequest,
+  validateMessageDeliveryRouterMetadata
+} from './message-delivery'
 
 describe('resolveMessageDelivery', () => {
   it('continues normally when auto is used without an active turn', () => {
@@ -53,5 +57,31 @@ describe('resolveMessageDelivery', () => {
         ...untrusted
       })
     ).toMatchObject({ resolved: 'side-question', source: 'safe-default' })
+  })
+
+  it('rejects forged identifiers and malformed persisted router metadata', () => {
+    const request = {
+      id: 'delivery-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      targetRootRunId: 'run-1',
+      targetPromptMessageId: 'prompt-1',
+      requested: 'auto' as const,
+      hasActiveTurn: true
+    }
+
+    expect(() => validateMessageDeliveryRequest({ ...request, id: 42 as never })).toThrow(
+      /id must be/i
+    )
+    expect(() =>
+      validateMessageDeliveryRequest({
+        ...request,
+        routerMetadata: { confidence: 2 }
+      })
+    ).toThrow(/confidence/i)
+    expect(() =>
+      validateMessageDeliveryRouterMetadata({ classifierAttemptId: 'line\nfeed' })
+    ).toThrow(/identifier/i)
   })
 })

@@ -17,6 +17,7 @@ import {
   type PermissionProfileId
 } from './permission-profiles'
 import type { AgentFrameworkId } from './settings'
+import { validatePersistedSideQuestion, type PersistedSideQuestion } from './side-question'
 import { sanitizeActivityGroupTitle } from './activity-groups'
 import { sanitizeElicitationProjection, type ElicitationProjection } from './elicitation'
 import {
@@ -269,6 +270,9 @@ export type PersistedChatSession = {
   messages: PersistedChatMessage[]
   // Session JSON v2 authority. Flat messages/activities remain an active-Branch compatibility view.
   conversationGraph?: PersistedConversationGraph
+  // Main-owned side-question cards. Renderer whole-session saves must preserve the authoritative
+  // collection; only dedicated main-process mutations may create or transition these records.
+  sideQuestions?: PersistedSideQuestion[]
   activities?: PersistedToolActivity[]
   activityGroups?: PersistedActivityGroup[]
   activeRun?: PersistedActiveRun
@@ -760,7 +764,7 @@ const sanitizeArtifact = (artifact: unknown): PersistedArtifact | undefined => {
 }
 
 // Rebuilds uploaded file references without accepting embedded content or unknown payloads.
-const sanitizeUploadedAttachment = (
+export const sanitizeUploadedAttachment = (
   attachment: unknown,
   options: { preserveLegacyPath?: boolean } = {}
 ): PersistedUploadedAttachment | undefined => {
@@ -795,6 +799,34 @@ const sanitizeUploadedAttachment = (
   if (!versionId && options.preserveLegacyPath && legacyPath) sanitized.path = legacyPath
 
   return sanitized
+}
+
+// Main-process prompt journaling uses these strict variants. The ordinary Session loader remains
+// repair-oriented and may drop malformed legacy fields; a new caller-supplied Message must fail
+// closed instead of silently changing the instruction that the delivery journal describes.
+export const validateMessageParts = (value: unknown): MessagePart[] | undefined => {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw new Error('Message parts must be an array.')
+  const parts = value.map(sanitizeMessagePart)
+  if (parts.some((part) => part === undefined)) {
+    throw new Error('Message parts contain an invalid entry.')
+  }
+  return parts as MessagePart[]
+}
+
+export const validatePersistedUploadedAttachments = (
+  value: unknown
+): PersistedUploadedAttachment[] | undefined => {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw new Error('Message uploads must be an array.')
+  const uploads = value.map((upload) => sanitizeUploadedAttachment(upload))
+  if (uploads.some((upload) => upload === undefined)) {
+    throw new Error('Message uploads contain an invalid entry.')
+  }
+  if (uploads.some((upload) => (upload?.size ?? 0) < 0)) {
+    throw new Error('Message upload sizes must be non-negative.')
+  }
+  return uploads as PersistedUploadedAttachment[]
 }
 
 // Persisting more than the UI shows is wasteful, so bound the large text-bearing fields.
@@ -1034,7 +1066,7 @@ const normalizeActivityGroupAfterRestore = (
   group.completedAt === undefined ? { ...group, completedAt: group.updatedAt } : group
 
 // Rebuilds one structured mention segment, dropping malformed entries so the bubble stays renderable.
-const sanitizeMessagePart = (part: unknown): MessagePart | undefined => {
+export const sanitizeMessagePart = (part: unknown): MessagePart | undefined => {
   if (!isRecord(part)) return undefined
 
   switch (asString(part.type)) {
@@ -1264,7 +1296,7 @@ const sanitizeConversationGraph = (
           !id ||
           !activeBranchId ||
           !kind ||
-          !['root', 'reviewer', 'delegate', 'compatibility'].includes(kind) ||
+          !['root', 'reviewer', 'delegate', 'side-question', 'compatibility'].includes(kind) ||
           !originBindingState ||
           !['root', 'validated', 'legacy-unavailable'].includes(originBindingState) ||
           !status ||
@@ -1636,6 +1668,16 @@ const sanitizeSession = (
   if (runtimeContext) sanitized.runtimeContext = runtimeContext
   const planHistoryProjections = sanitizePlanHistoryProjections(session.planHistoryProjections)
   if (planHistoryProjections) sanitized.planHistoryProjections = planHistoryProjections
+  if (Array.isArray(session.sideQuestions)) {
+    const sideQuestions = session.sideQuestions.flatMap((candidate) => {
+      try {
+        return [validatePersistedSideQuestion(candidate as PersistedSideQuestion)]
+      } catch {
+        return []
+      }
+    })
+    if (sideQuestions.length > 0) sanitized.sideQuestions = sideQuestions
+  }
   if (sanitized.status === 'waiting-plan-approval' && runtimeContext?.plan === undefined) {
     // Approval waiting is meaningful only with restorable main-owned Plan authority. A corrupt or
     // unknown context must not leave the conversation permanently blocked with nothing to approve.

@@ -322,6 +322,11 @@ import type {
   WindowFindRequest,
   WindowFindResult
 } from '../shared/window-controls'
+import type {
+  MessageDeliveryCommandResult,
+  MessageDeliveryRendererRequest
+} from '../shared/message-delivery'
+import type { PersistedSideQuestion } from '../shared/side-question'
 
 type RemoveListener = () => void
 type AcpListener<Payload> = (payload: Payload) => void
@@ -339,6 +344,14 @@ export interface OpenScienceAPI {
   }
   lifecycle: {
     getClientId(): Promise<string>
+  }
+  messageDelivery: {
+    deliver(request: MessageDeliveryRendererRequest): Promise<MessageDeliveryCommandResult>
+  }
+  sideQuestion: {
+    list(sessionId: string): Promise<readonly PersistedSideQuestion[]>
+    cancel(sessionId: string, sideQuestionId: string): Promise<PersistedSideQuestion | undefined>
+    onUpdated(listener: (record: PersistedSideQuestion) => void): RemoveListener
   }
   diagnostics?: {
     reportRendererFailure(report: RendererFailureReport): void

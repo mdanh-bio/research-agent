@@ -115,8 +115,32 @@ const ROUTING_POLICY_SNAPSHOT_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "RoutingPo
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`
 
+const AGENT_GRAPH_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "AgentGraph" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "rootPromptMessageId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL DEFAULT 'root',
+    "lifecycle" TEXT NOT NULL DEFAULT 'active',
+    "maxConcurrency" INTEGER NOT NULL DEFAULT 4,
+    "maxDepth" INTEGER NOT NULL DEFAULT 1,
+    "maxChildren" INTEGER NOT NULL DEFAULT 8,
+    "totalBudgetJson" TEXT,
+    "observedUsageJson" TEXT NOT NULL DEFAULT '{}',
+    "cancellationGeneration" INTEGER NOT NULL DEFAULT 0,
+    "cancelRequestedAt" DATETIME,
+    "cancellationReason" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "revision" INTEGER NOT NULL DEFAULT 1
+);`
+
 const AGENT_RUN_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "AgentRun" (
     "id" TEXT NOT NULL PRIMARY KEY,
+    "graphId" TEXT,
+    "frameId" TEXT,
+    "runKind" TEXT NOT NULL DEFAULT 'root',
+    "depth" INTEGER NOT NULL DEFAULT 0,
     "parentAgentRunId" TEXT,
     "policySnapshotId" TEXT NOT NULL,
     "projectId" TEXT NOT NULL,
@@ -127,13 +151,62 @@ const AGENT_RUN_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "AgentRun" (
     "runtime" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'queued',
     "budgetJson" TEXT,
+    "artifactStorageSessionId" TEXT,
+    "observedBudgetJson" TEXT NOT NULL DEFAULT '{}',
     "outputArtifactIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "cancelRequestedAt" DATETIME,
+    "cancelledAt" DATETIME,
+    "failureCode" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "startedAt" DATETIME,
     "finishedAt" DATETIME,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "revision" INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT "AgentRun_graphId_fkey" FOREIGN KEY ("graphId") REFERENCES "AgentGraph" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "AgentRun_parentAgentRunId_fkey" FOREIGN KEY ("parentAgentRunId") REFERENCES "AgentRun" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "AgentRun_policySnapshotId_fkey" FOREIGN KEY ("policySnapshotId") REFERENCES "RoutingPolicySnapshot" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );`
+
+const MESSAGE_DELIVERY_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "MessageDelivery" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "messageId" TEXT NOT NULL,
+    "graphId" TEXT NOT NULL,
+    "targetRootRunId" TEXT NOT NULL,
+    "targetPromptMessageId" TEXT NOT NULL,
+    "backend" TEXT,
+    "runtimeThreadId" TEXT,
+    "runtimeTurnId" TEXT,
+    "requestedMode" TEXT NOT NULL,
+    "resolvedMode" TEXT,
+    "decisionSource" TEXT,
+    "routerMetadataJson" TEXT,
+    "sequence" INTEGER NOT NULL,
+    "lifecycle" TEXT NOT NULL DEFAULT 'preparing',
+    "safeErrorCode" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "revision" INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT "MessageDelivery_graphId_fkey" FOREIGN KEY ("graphId") REFERENCES "AgentGraph" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);`
+
+const AGENT_RUN_ADD_GRAPH_ID_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "graphId" TEXT`
+const AGENT_RUN_ADD_FRAME_ID_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "frameId" TEXT`
+const AGENT_RUN_ADD_RUN_KIND_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "runKind" TEXT NOT NULL DEFAULT 'root'`
+const AGENT_RUN_ADD_DEPTH_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "depth" INTEGER NOT NULL DEFAULT 0`
+const AGENT_RUN_ADD_ARTIFACT_STORAGE_SESSION_ID_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "artifactStorageSessionId" TEXT`
+const AGENT_RUN_ADD_OBSERVED_BUDGET_JSON_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "observedBudgetJson" TEXT NOT NULL DEFAULT '{}'`
+const AGENT_RUN_ADD_CANCEL_REQUESTED_AT_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "cancelRequestedAt" DATETIME`
+const AGENT_RUN_ADD_CANCELLED_AT_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "cancelledAt" DATETIME`
+const AGENT_RUN_ADD_FAILURE_CODE_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "failureCode" TEXT`
+// SQLite only permits a constant default when ALTER TABLE adds a NOT NULL column. The epoch is a
+// compatibility placeholder for legacy rows; their existing lifecycle timestamps remain authoritative
+// until a later AgentRun write updates this @updatedAt field.
+const AGENT_RUN_ADD_UPDATED_AT_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "updatedAt" DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'`
+const AGENT_RUN_ADD_REVISION_DDL = `ALTER TABLE "AgentRun" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 1`
+const AGENT_GRAPH_ADD_CANCELLATION_REASON_DDL = `ALTER TABLE "AgentGraph" ADD COLUMN "cancellationReason" TEXT`
+const MESSAGE_DELIVERY_ADD_REVISION_DDL = `ALTER TABLE "MessageDelivery" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 1`
 
 const MODEL_ATTEMPT_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "ModelAttempt" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -173,10 +246,25 @@ const RUNTIME_THREAD_LINK_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "RuntimeThread
     "runtimeThreadId" TEXT NOT NULL,
     "parentRuntimeThreadId" TEXT,
     "ephemeral" BOOLEAN NOT NULL DEFAULT false,
+    "runtimeOwner" TEXT,
+    "authorizedCwd" TEXT,
+    "sandbox" TEXT,
+    "model" TEXT,
+    "modelProvider" TEXT,
+    "approvalPolicy" TEXT,
+    "approvalsReviewer" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "closedAt" DATETIME,
     CONSTRAINT "RuntimeThreadLink_agentRunId_fkey" FOREIGN KEY ("agentRunId") REFERENCES "AgentRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );`
+
+const RUNTIME_THREAD_LINK_ADD_RUNTIME_OWNER_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "runtimeOwner" TEXT`
+const RUNTIME_THREAD_LINK_ADD_AUTHORIZED_CWD_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "authorizedCwd" TEXT`
+const RUNTIME_THREAD_LINK_ADD_SANDBOX_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "sandbox" TEXT`
+const RUNTIME_THREAD_LINK_ADD_MODEL_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "model" TEXT`
+const RUNTIME_THREAD_LINK_ADD_MODEL_PROVIDER_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "modelProvider" TEXT`
+const RUNTIME_THREAD_LINK_ADD_APPROVAL_POLICY_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "approvalPolicy" TEXT`
+const RUNTIME_THREAD_LINK_ADD_APPROVALS_REVIEWER_DDL = `ALTER TABLE "RuntimeThreadLink" ADD COLUMN "approvalsReviewer" TEXT`
 
 const MODEL_ROUTING_INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS "RoutingPolicySnapshot_projectId_sessionId_createdAt_idx" ON "RoutingPolicySnapshot"("projectId", "sessionId", "createdAt")`,
@@ -185,6 +273,11 @@ const MODEL_ROUTING_INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS "AgentRun_parentAgentRunId_idx" ON "AgentRun"("parentAgentRunId")`,
   `CREATE INDEX IF NOT EXISTS "AgentRun_policySnapshotId_idx" ON "AgentRun"("policySnapshotId")`,
   `CREATE INDEX IF NOT EXISTS "AgentRun_status_idx" ON "AgentRun"("status")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "AgentGraph_projectId_sessionId_rootPromptMessageId_key" ON "AgentGraph"("projectId", "sessionId", "rootPromptMessageId")`,
+  `CREATE INDEX IF NOT EXISTS "AgentGraph_projectId_sessionId_createdAt_idx" ON "AgentGraph"("projectId", "sessionId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "AgentGraph_lifecycle_idx" ON "AgentGraph"("lifecycle")`,
+  `CREATE INDEX IF NOT EXISTS "AgentRun_graphId_status_idx" ON "AgentRun"("graphId", "status")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "AgentRun_graphId_frameId_key" ON "AgentRun"("graphId", "frameId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ModelAttempt_agentRunId_sequence_key" ON "ModelAttempt"("agentRunId", "sequence")`,
   `CREATE INDEX IF NOT EXISTS "ModelAttempt_agentRunId_startedAt_idx" ON "ModelAttempt"("agentRunId", "startedAt")`,
   `CREATE INDEX IF NOT EXISTS "ModelAttempt_providerId_model_startedAt_idx" ON "ModelAttempt"("providerId", "model", "startedAt")`,
@@ -192,7 +285,13 @@ const MODEL_ROUTING_INDEX_DDLS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "ModelAttempt_fallbackApprovalId_key" ON "ModelAttempt"("fallbackApprovalId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "RuntimeThreadLink_backend_runtimeThreadId_key" ON "RuntimeThreadLink"("backend", "runtimeThreadId")`,
   `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_agentRunId_idx" ON "RuntimeThreadLink"("agentRunId")`,
-  `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_appSessionId_createdAt_idx" ON "RuntimeThreadLink"("appSessionId", "createdAt")`
+  `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_appSessionId_createdAt_idx" ON "RuntimeThreadLink"("appSessionId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "RuntimeThreadLink_runtimeOwner_closedAt_idx" ON "RuntimeThreadLink"("runtimeOwner", "closedAt")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "MessageDelivery_sessionId_sequence_key" ON "MessageDelivery"("sessionId", "sequence")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "MessageDelivery_sessionId_messageId_key" ON "MessageDelivery"("sessionId", "messageId")`,
+  `CREATE INDEX IF NOT EXISTS "MessageDelivery_projectId_sessionId_createdAt_idx" ON "MessageDelivery"("projectId", "sessionId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "MessageDelivery_graphId_lifecycle_idx" ON "MessageDelivery"("graphId", "lifecycle")`,
+  `CREATE INDEX IF NOT EXISTS "MessageDelivery_targetRootRunId_idx" ON "MessageDelivery"("targetRootRunId")`
 ]
 
 // Reviewer results: one Review per audited turn, plus its child checks (stored in Finding table).
@@ -717,7 +816,40 @@ const ensureProjectSchema = async (client: PrismaClient): Promise<void> => {
     await client.$executeRawUnsafe(ddl)
   }
   await client.$executeRawUnsafe(ROUTING_POLICY_SNAPSHOT_TABLE_DDL)
+  await client.$executeRawUnsafe(AGENT_GRAPH_TABLE_DDL)
+  await addColumnIfMissing(
+    client,
+    'AgentGraph',
+    'cancellationReason',
+    AGENT_GRAPH_ADD_CANCELLATION_REASON_DDL
+  )
   await client.$executeRawUnsafe(AGENT_RUN_TABLE_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'graphId', AGENT_RUN_ADD_GRAPH_ID_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'frameId', AGENT_RUN_ADD_FRAME_ID_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'runKind', AGENT_RUN_ADD_RUN_KIND_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'depth', AGENT_RUN_ADD_DEPTH_DDL)
+  await addColumnIfMissing(
+    client,
+    'AgentRun',
+    'artifactStorageSessionId',
+    AGENT_RUN_ADD_ARTIFACT_STORAGE_SESSION_ID_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'AgentRun',
+    'observedBudgetJson',
+    AGENT_RUN_ADD_OBSERVED_BUDGET_JSON_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'AgentRun',
+    'cancelRequestedAt',
+    AGENT_RUN_ADD_CANCEL_REQUESTED_AT_DDL
+  )
+  await addColumnIfMissing(client, 'AgentRun', 'cancelledAt', AGENT_RUN_ADD_CANCELLED_AT_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'failureCode', AGENT_RUN_ADD_FAILURE_CODE_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'updatedAt', AGENT_RUN_ADD_UPDATED_AT_DDL)
+  await addColumnIfMissing(client, 'AgentRun', 'revision', AGENT_RUN_ADD_REVISION_DDL)
   await client.$executeRawUnsafe(MODEL_ATTEMPT_TABLE_DDL)
   await addColumnIfMissing(
     client,
@@ -732,6 +864,45 @@ const ensureProjectSchema = async (client: PrismaClient): Promise<void> => {
     MODEL_ATTEMPT_ADD_FALLBACK_APPROVAL_JSON_DDL
   )
   await client.$executeRawUnsafe(RUNTIME_THREAD_LINK_TABLE_DDL)
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'runtimeOwner',
+    RUNTIME_THREAD_LINK_ADD_RUNTIME_OWNER_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'authorizedCwd',
+    RUNTIME_THREAD_LINK_ADD_AUTHORIZED_CWD_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'sandbox',
+    RUNTIME_THREAD_LINK_ADD_SANDBOX_DDL
+  )
+  await addColumnIfMissing(client, 'RuntimeThreadLink', 'model', RUNTIME_THREAD_LINK_ADD_MODEL_DDL)
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'modelProvider',
+    RUNTIME_THREAD_LINK_ADD_MODEL_PROVIDER_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'approvalPolicy',
+    RUNTIME_THREAD_LINK_ADD_APPROVAL_POLICY_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'RuntimeThreadLink',
+    'approvalsReviewer',
+    RUNTIME_THREAD_LINK_ADD_APPROVALS_REVIEWER_DDL
+  )
+  await client.$executeRawUnsafe(MESSAGE_DELIVERY_TABLE_DDL)
+  await addColumnIfMissing(client, 'MessageDelivery', 'revision', MESSAGE_DELIVERY_ADD_REVISION_DDL)
   for (const ddl of MODEL_ROUTING_INDEX_DDLS) {
     await client.$executeRawUnsafe(ddl)
   }

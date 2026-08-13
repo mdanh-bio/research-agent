@@ -53,6 +53,196 @@ describe('project prisma client (integration)', () => {
     }
   })
 
+  it('adds M2 graph and delivery tables to a fresh database with the expected indexes', async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), 'open-science-m2-schema-fresh-'))
+    const client = createProjectDbClient(storageRoot)
+    disconnect = () => client.$disconnect()
+
+    await ensureProjectSchema(client)
+
+    const graphColumns = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info("AgentGraph")'
+    )
+    expect(graphColumns.map(({ name }) => name)).toEqual([
+      'id',
+      'projectId',
+      'sessionId',
+      'rootPromptMessageId',
+      'kind',
+      'lifecycle',
+      'maxConcurrency',
+      'maxDepth',
+      'maxChildren',
+      'totalBudgetJson',
+      'observedUsageJson',
+      'cancellationGeneration',
+      'cancelRequestedAt',
+      'cancellationReason',
+      'createdAt',
+      'updatedAt',
+      'revision'
+    ])
+    const deliveryColumns = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info("MessageDelivery")'
+    )
+    expect(deliveryColumns.map(({ name }) => name)).toEqual([
+      'id',
+      'projectId',
+      'sessionId',
+      'messageId',
+      'graphId',
+      'targetRootRunId',
+      'targetPromptMessageId',
+      'backend',
+      'runtimeThreadId',
+      'runtimeTurnId',
+      'requestedMode',
+      'resolvedMode',
+      'decisionSource',
+      'routerMetadataJson',
+      'sequence',
+      'lifecycle',
+      'safeErrorCode',
+      'createdAt',
+      'updatedAt',
+      'revision'
+    ])
+    const indexes = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA index_list("MessageDelivery")'
+    )
+    expect(indexes.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'MessageDelivery_sessionId_sequence_key',
+        'MessageDelivery_sessionId_messageId_key',
+        'MessageDelivery_graphId_lifecycle_idx'
+      ])
+    )
+    const runtimeLinkColumns = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info("RuntimeThreadLink")'
+    )
+    expect(runtimeLinkColumns.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'runtimeOwner',
+        'authorizedCwd',
+        'sandbox',
+        'model',
+        'modelProvider',
+        'approvalPolicy',
+        'approvalsReviewer'
+      ])
+    )
+  })
+
+  it('adds direct Codex resume authority fields to a legacy RuntimeThreadLink table', async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), 'open-science-m2-runtime-link-migration-'))
+    const client = createProjectDbClient(storageRoot)
+    disconnect = () => client.$disconnect()
+
+    await ensureProjectSchema(client)
+    await client.$executeRawUnsafe('PRAGMA foreign_keys = OFF')
+    await client.$executeRawUnsafe('DROP TABLE "RuntimeThreadLink"')
+    await client.$executeRawUnsafe(`CREATE TABLE "RuntimeThreadLink" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "agentRunId" TEXT NOT NULL,
+      "appSessionId" TEXT NOT NULL,
+      "backend" TEXT NOT NULL,
+      "runtimeThreadId" TEXT NOT NULL,
+      "parentRuntimeThreadId" TEXT,
+      "ephemeral" BOOLEAN NOT NULL DEFAULT false,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "closedAt" DATETIME
+    )`)
+    await client.$executeRawUnsafe('PRAGMA foreign_keys = ON')
+
+    await ensureProjectSchema(client)
+    const columns = await client.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info("RuntimeThreadLink")'
+    )
+    expect(columns.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'runtimeOwner',
+        'authorizedCwd',
+        'sandbox',
+        'model',
+        'modelProvider',
+        'approvalPolicy',
+        'approvalsReviewer'
+      ])
+    )
+    await expect(ensureProjectSchema(client)).resolves.toBeUndefined()
+  })
+
+  it('keeps a pre-M2 AgentRun readable as a legacy run after the additive schema upgrade', async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), 'open-science-m2-schema-legacy-'))
+    const client = createProjectDbClient(storageRoot)
+    disconnect = () => client.$disconnect()
+
+    await client.$executeRawUnsafe(`CREATE TABLE "RoutingPolicySnapshot" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "projectId" TEXT,
+      "sessionId" TEXT,
+      "workClass" TEXT NOT NULL,
+      "policyId" TEXT NOT NULL,
+      "policyVersion" TEXT NOT NULL,
+      "policySource" TEXT NOT NULL,
+      "policyJson" TEXT NOT NULL,
+      "policyHash" TEXT NOT NULL,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`)
+    await client.$executeRawUnsafe(`CREATE TABLE "AgentRun" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "parentAgentRunId" TEXT,
+      "policySnapshotId" TEXT NOT NULL,
+      "projectId" TEXT NOT NULL,
+      "sessionId" TEXT NOT NULL,
+      "promptMessageId" TEXT,
+      "role" TEXT NOT NULL,
+      "workClass" TEXT NOT NULL,
+      "runtime" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'queued',
+      "budgetJson" TEXT,
+      "outputArtifactIdsJson" TEXT NOT NULL DEFAULT '[]',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "startedAt" DATETIME,
+      "finishedAt" DATETIME
+    )`)
+    await client.$executeRawUnsafe(
+      `INSERT INTO "RoutingPolicySnapshot" ("id", "projectId", "sessionId", "workClass", "policyId", "policyVersion", "policySource", "policyJson", "policyHash") VALUES ('snapshot-legacy', 'project-1', 'session-1', 'analysis', 'legacy', '1', 'shipped_default', '{}', 'hash')`
+    )
+    await client.$executeRawUnsafe(
+      `INSERT INTO "AgentRun" ("id", "policySnapshotId", "projectId", "sessionId", "promptMessageId", "role", "workClass", "runtime", "status", "outputArtifactIdsJson") VALUES ('run-legacy', 'snapshot-legacy', 'project-1', 'session-1', 'message-legacy', 'main-agent', 'analysis', 'opencode', 'completed', '[]')`
+    )
+
+    await ensureProjectSchema(client)
+    const legacy = await client.agentRun.findUniqueOrThrow({ where: { id: 'run-legacy' } })
+    expect(legacy).toMatchObject({
+      graphId: null,
+      frameId: null,
+      runKind: 'root',
+      depth: 0,
+      artifactStorageSessionId: null,
+      observedBudgetJson: '{}',
+      cancelRequestedAt: null,
+      cancelledAt: null,
+      failureCode: null,
+      revision: 1
+    })
+    // A pre-M2 binary that writes only its old columns can still read/write the upgraded table; the
+    // additive defaults keep this rollback path non-destructive.
+    await client.$executeRawUnsafe(
+      `INSERT INTO "AgentRun" ("id", "policySnapshotId", "projectId", "sessionId", "promptMessageId", "role", "workClass", "runtime", "status", "outputArtifactIdsJson") VALUES ('run-legacy-2', 'snapshot-legacy', 'project-1', 'session-1', 'message-legacy-2', 'main-agent', 'analysis', 'opencode', 'queued', '[]')`
+    )
+    await expect(
+      client.agentRun.findUniqueOrThrow({ where: { id: 'run-legacy-2' } })
+    ).resolves.toMatchObject({
+      graphId: null,
+      runKind: 'root',
+      depth: 0,
+      revision: 1
+    })
+    await expect(ensureProjectSchema(client)).resolves.toBeUndefined()
+  })
+
   it('adds archive visibility to an existing Project table without rewriting its activity time', async () => {
     storageRoot = await mkdtemp(join(tmpdir(), 'open-science-project-archive-migration-'))
     const client = createProjectDbClient(storageRoot)

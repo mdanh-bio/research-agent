@@ -190,6 +190,42 @@ describe('ProviderAccountsModule', () => {
     expect(await repository.getSettings()).toEqual(before)
   })
 
+  it('uses a saved custom-provider catalog for exact runtime model selection', async () => {
+    await module.upsertProvider({
+      type: 'custom',
+      name: 'Lab gateway',
+      baseUrl: 'https://lab.example/v1',
+      model: 'primary-model',
+      key: 'secret-key',
+      apiEndpoints: ['responses']
+    })
+    const stored = (await repository.getSettings()).providers[0]
+    await repository.upsertProvider({
+      ...stored,
+      fetchedModels: ['primary-model', 'secondary-model', 'secondary-model']
+    })
+    const catalogued = (await repository.getSettings()).providers[0]
+
+    expect(module.toProviderView(catalogued).models).toEqual(['primary-model', 'secondary-model'])
+    expect(
+      module.resolveRuntimeTarget(
+        catalogued,
+        { kind: 'required', model: 'secondary-model' },
+        getAgentFramework('codex')
+      )
+    ).toMatchObject({
+      effectiveModel: 'secondary-model',
+      provider: { model: 'secondary-model', key: 'secret-key' }
+    })
+    expect(() =>
+      module.resolveRuntimeTarget(
+        catalogued,
+        { kind: 'required', model: 'unknown-model' },
+        getAgentFramework('codex')
+      )
+    ).toThrow('not available')
+  })
+
   it('keeps an exact required model when a subscription catalog is unknown', async () => {
     await module.upsertProvider({ type: 'claude-shared' })
     const before = await repository.getSettings()

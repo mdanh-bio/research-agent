@@ -40,6 +40,21 @@ authenticity. M1 deliberately does not retry a prompt after provider dispatch, b
 session state cannot guarantee provider consistency; fresh-context replay remains a future residual
 design task. These risks must be visible rather than described as eliminated.
 
+## M2 threat proposals (controls pending verification)
+
+The following M2-specific controls are implemented and deterministically tested through Stage 5.
+They are not live-provider or packaged-app verification claims, and delegation/artifact-writing
+children remain pending Stage 6 and later work.
+
+| Threat                                                | Proposed control; implementation status remains pending the M2 exit gate                                                                                                             |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Duplicate delivery or provider dispatch after a retry | Durable delivery IDs, compare-and-set lifecycle transitions, exact turn binding, and blocked dispatch-ambiguous recovery. Deterministically verified through Stage 5.                |
+| Stale-turn retargeting                                | Persist the target thread/turn identity and reject a changed target instead of silently selecting a newer turn. Deterministically verified through Stage 5.                          |
+| Child authority forgery                               | Main-owned graph/run/frame identity, parent/graph/depth validation, renderer-safe projections, and exact single-use child approval. Deterministically verified for side questions.   |
+| Concurrency leakage                                   | Count queued/running nodes inside the graph transaction and enforce the stored limit plus the application hard cap. Deterministically verified for side-question admission/recovery. |
+| Artifact collision or cross-run write                 | Per-run artifact-storage identity and immutable Version binding before parent consumption. Proposed; verification pending.                                                           |
+| Cross-store crash window                              | Prepare/persist/promote journaling with explicit abandoned, recoverable, and blocked outcomes; never replay an ambiguous dispatch. Deterministically verified through Stage 5.       |
+
 Codex read-only mode still permits broad filesystem reads under the current pinned runtime. Research
 Agent constrains writable roots and direct network access for workspace-write threads, but it cannot
 yet describe read-only side-question forks as narrowly scoped filesystem isolation. On POSIX, the

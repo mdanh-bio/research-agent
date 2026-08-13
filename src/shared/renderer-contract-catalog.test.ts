@@ -16,18 +16,18 @@ describe('renderer contract catalog', () => {
   it('pins the complete capability-owned inventory and legacy map projection', () => {
     const projection = projectRendererContractMaps(RENDERER_CONTRACT_CATALOG)
 
-    expect(RENDERER_CONTRACT_GROUPS).toHaveLength(31)
-    expect(RENDERER_CONTRACT_CATALOG).toHaveLength(327)
+    expect(RENDERER_CONTRACT_GROUPS).toHaveLength(33)
+    expect(RENDERER_CONTRACT_CATALOG).toHaveLength(331)
     expect(projection.invoke).toEqual(WEB_INVOKE_CHANNELS)
     expect(projection.event).toEqual(WEB_EVENT_CHANNELS)
-    expect(Object.keys(projection.invoke)).toHaveLength(243)
-    expect(Object.keys(projection.event)).toHaveLength(33)
+    expect(Object.keys(projection.invoke)).toHaveLength(246)
+    expect(Object.keys(projection.event)).toHaveLength(34)
   })
 
   it('separates actual Web installation from the generated compatibility projection', () => {
     expect(
       paths(({ surfaceInstallation }) => surfaceInstallation.localWeb !== 'unavailable')
-    ).toHaveLength(272)
+    ).toHaveLength(276)
     expect(
       paths(({ surfaceInstallation }) => surfaceInstallation.localWeb === 'browser-native')
     ).toEqual(['getRuntimeVersions', 'saveBlobFile', 'saveManagedFile', 'window.close'])
@@ -210,20 +210,26 @@ describe('renderer contract catalog', () => {
 
   it('marks only the runtime-validated Project command slice', () => {
     expect(paths(({ applicationCommand }) => applicationCommand === 'runtime-validated')).toEqual([
+      'messageDelivery.deliver',
       'projects.create',
       'projects.delete',
       'projects.get',
       'projects.list',
       'projects.update',
-      'projects.updateArchive'
+      'projects.updateArchive',
+      'sideQuestion.cancel',
+      'sideQuestion.list'
     ])
     expect(ELECTRON_APPLICATION_COMMAND_CHANNELS).toEqual([
+      'message-delivery:deliver',
       'projects:create',
       'projects:delete',
       'projects:get',
       'projects:list',
       'projects:update',
-      'projects:update-archive'
+      'projects:update-archive',
+      'side-question:cancel',
+      'side-question:list'
     ])
   })
 })

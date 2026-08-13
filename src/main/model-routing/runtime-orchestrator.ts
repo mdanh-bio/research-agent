@@ -17,6 +17,7 @@ import {
 import { ModelRoutingLedger } from './ledger'
 import { modelTargetsEqual } from '../../shared/model-routing'
 import type { ConfiguredRouteResolution, ConfiguredRoutingContext } from './configured-policy'
+import type { AgentGraphOwner } from '../agent-graph/owner'
 
 export type PreparedRoutedRequestIdentity = RequestIdentityInput &
   Readonly<{
@@ -37,10 +38,12 @@ export type RoutedRunInput = Readonly<{
   dataBoundary?: DataBoundary
   role?: string
   sessionOrAgentPin?: ModelRoutePolicy
+  // Routing-off roots use the exact configured target without evaluating request content.
+  directTarget?: ModelTarget | (() => ModelTarget | Promise<ModelTarget>)
 }>
 
 export type RoutedDispatchContext =
-  | Readonly<{ kind: 'legacy' }>
+  | Readonly<{ kind: 'legacy'; agentRunId?: string }>
   | Readonly<{
       kind: 'routed'
       target: ModelTarget
@@ -85,6 +88,11 @@ type ActiveAttempt = {
   sideEffectWrite?: Promise<void>
   sideEffectError?: unknown
 }
+
+type AgentRunOwner = Pick<
+  AgentGraphOwner,
+  'createRoutedRoot' | 'createConfiguredDirectRoot' | 'finishRun'
+>
 
 export class RoutingRecoveryHandoffRequiredError extends Error {
   constructor(
@@ -234,7 +242,8 @@ export class RoutedRunOrchestrator {
   constructor(
     private readonly resolver: RoutedRunResolver,
     private readonly ledger: ModelRoutingLedger,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly runOwner?: AgentRunOwner
   ) {}
 
   async execute<Value>(
@@ -245,7 +254,35 @@ export class RoutedRunOrchestrator {
       projectId: input.projectId,
       sessionOrAgentPin: input.sessionOrAgentPin
     })
-    if (!routingContext) return (await dispatch(Object.freeze({ kind: 'legacy' }))).value
+    if (!routingContext) {
+      if (!this.runOwner || input.directTarget === undefined) {
+        return (await dispatch(Object.freeze({ kind: 'legacy' }))).value
+      }
+      const target =
+        typeof input.directTarget === 'function' ? await input.directTarget() : input.directTarget
+      const root = await this.runOwner.createConfiguredDirectRoot({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        promptMessageId: input.promptMessageId ?? `prompt-${this.now()}`,
+        workClass: input.workClass,
+        role: input.role,
+        target,
+        budget: undefined,
+        status: 'running'
+      })
+      try {
+        const result = await dispatch(
+          Object.freeze({ kind: 'legacy', agentRunId: root.agentRunId })
+        )
+        await this.runOwner.finishRun(root.agentRunId, result.cancelled ? 'cancelled' : 'completed')
+        return result.value
+      } catch (error) {
+        await this.runOwner
+          .finishRun(root.agentRunId, 'failed', { safeFailureCode: 'provider_failure' })
+          .catch(() => undefined)
+        throw error
+      }
+    }
 
     const request = typeof input.request === 'function' ? await input.request() : input.request
     const requestIdentity = computeRequestIdentity(request)
@@ -256,21 +293,35 @@ export class RoutedRunOrchestrator {
       ...(requiredCapabilities ? { requiredCapabilities } : {}),
       ...(dataBoundary ? { dataBoundary } : {})
     })
-    const run = await this.ledger.beginAgentRun({
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      promptMessageId: input.promptMessageId,
-      role: input.role ?? 'main-agent',
-      routeDecision: initial.decision,
-      effectivePolicy: initial.effectivePolicy,
-      status: 'running'
-    })
+    const run = this.runOwner
+      ? await this.runOwner.createRoutedRoot({
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          promptMessageId: input.promptMessageId ?? `prompt-${this.now()}`,
+          role: input.role ?? 'main-agent',
+          workClass: input.workClass,
+          target: initial.decision.target,
+          routeDecision: initial.decision,
+          effectivePolicy: initial.effectivePolicy,
+          status: 'running'
+        })
+      : await this.ledger.beginAgentRun({
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          promptMessageId: input.promptMessageId,
+          role: input.role ?? 'main-agent',
+          routeDecision: initial.decision,
+          effectivePolicy: initial.effectivePolicy,
+          status: 'running'
+        })
     const attempts: PersistedFallbackAttempt[] = []
     const excludedTargetIds: string[] = []
     let target = initial.decision.target
     let trigger: ModelFailureCategory | 'initial' = 'initial'
     let runFinalized = false
-    const finalizeRun = async (status: AgentRunStatus): Promise<void> => {
+    const finalizeRun = async (
+      status: Extract<AgentRunStatus, 'completed' | 'failed' | 'cancelled' | 'blocked'>
+    ): Promise<void> => {
       await this.finishRun(run.agentRunId, status)
       runFinalized = true
     }
@@ -448,7 +499,14 @@ export class RoutedRunOrchestrator {
     if (active.sideEffectError) throw active.sideEffectError
   }
 
-  private async finishRun(agentRunId: string, status: AgentRunStatus): Promise<void> {
+  private async finishRun(
+    agentRunId: string,
+    status: Extract<AgentRunStatus, 'completed' | 'failed' | 'cancelled' | 'blocked'>
+  ): Promise<void> {
+    if (this.runOwner) {
+      await this.runOwner.finishRun(agentRunId, status)
+      return
+    }
     await this.ledger.finishAgentRun(agentRunId, status)
   }
 }

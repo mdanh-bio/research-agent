@@ -33,6 +33,7 @@ import type { SessionPersistenceCoordinator } from '../session-persistence/coord
 import { getProjectDbClient } from '../projects/prisma-client'
 import { ModelRoutingLedger } from '../model-routing/ledger'
 import { RoutedRunOrchestrator } from '../model-routing/runtime-orchestrator'
+import { AgentGraphOwner } from '../agent-graph/owner'
 import { AgentMcpHttpHost } from './mcp-http-host'
 import { projectRegistrySessionGrants } from './permission-broker'
 import { AcpRuntime, type AcpRuntimeCallbacks, type AcpRuntimeOptions } from './runtime'
@@ -72,12 +73,18 @@ type AcpRuntimeCompositionOptions = AcpRuntimeArtifacts & {
   >
   onSessionTurnStarted?: (sessionId: string, turnToken: string) => void
   onSessionTurnEnded?: (sessionId: string, turnToken: string) => void
+  onSessionRunFinalized?: (sessionId: string) => void
+  onSessionArtifactFinalizationFailed?: (
+    sessionId: string,
+    turnToken: string
+  ) => Promise<void> | void
   onSkillImportAttachmentEligible?: (
     sessionId: string,
     turnToken: string,
     attachmentUri: string
   ) => void
   onSessionCancellationRequested?: (sessionId: string) => void
+  onSessionReady?: (sessionId: string) => void
   onSessionUnavailable?: (sessionId: string) => void
   onAllSessionsCancellationRequested?: () => void
   onDisconnected?: () => void
@@ -109,8 +116,11 @@ const createAcpRuntime = ({
   notificationInbox,
   onSessionTurnStarted,
   onSessionTurnEnded,
+  onSessionRunFinalized,
+  onSessionArtifactFinalizationFailed,
   onSkillImportAttachmentEligible,
   onSessionCancellationRequested,
+  onSessionReady,
   onSessionUnavailable,
   onAllSessionsCancellationRequested,
   onDisconnected,
@@ -121,6 +131,7 @@ const createAcpRuntime = ({
   const configRoot = resolveConfigRoot()
   const dataRoot = resolveDataRoot()
   const defaultCwd = homedir()
+  const agentGraphOwner = new AgentGraphOwner(() => getProjectDbClient(dataRoot))
   const routedRuns = new RoutedRunOrchestrator(
     {
       // Compatibility compositions that do not expose the new capture seam remain routing-off. This
@@ -132,7 +143,9 @@ const createAcpRuntime = ({
       resolve: (context, request) =>
         Promise.resolve(settingsService.resolveCapturedConfiguredRoute(context, request))
     },
-    new ModelRoutingLedger(() => getProjectDbClient(dataRoot))
+    new ModelRoutingLedger(() => getProjectDbClient(dataRoot)),
+    Date.now,
+    agentGraphOwner
   )
   const callbacks: AcpRuntimeCallbacks = {
     onStateChanged: (state: AcpStateSnapshot) => broadcastToRenderers('acp:state', state),
@@ -340,8 +353,11 @@ const createAcpRuntime = ({
     {
       onSessionTurnStarted,
       onSessionTurnEnded,
+      onSessionRunFinalized,
+      onSessionArtifactFinalizationFailed,
       onSkillImportAttachmentEligible,
       onSessionCancellationRequested,
+      onSessionReady,
       onAllSessionsCancellationRequested,
       beforeSessionDelete
     },
@@ -349,7 +365,10 @@ const createAcpRuntime = ({
       ? () => projectRegistrySessionGrants(permissionGrantRegistry.listCached())
       : undefined,
     routedRuns,
-    (target) => settingsService.resolveRoutedAgentModelChangeTarget(target)
+    (target) => settingsService.resolveRoutedAgentModelChangeTarget(target),
+    settingsService.resolveConfiguredDirectTarget
+      ? (workClass) => settingsService.resolveConfiguredDirectTarget!(workClass)
+      : undefined
   )
 }
 

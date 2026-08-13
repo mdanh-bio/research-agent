@@ -29,6 +29,7 @@ export type AcpPromptFinalizationHandles = Readonly<{
   model?: string
   emitUserMessage: () => void
   emitArtifact: (onPublished: () => void) => Promise<void>
+  onArtifactFinalizationFailed?: () => Promise<void> | void
   disposeArtifact: () => Promise<void>
   failPendingSkillActivities: () => void
   recordContextUsed: (used: number) => void
@@ -54,6 +55,7 @@ export class AcpPromptOutcomeFinalizer {
   ): Promise<PromptResponse> {
     let artifactPublished = false
     let artifactRetryAttempted = false
+    let artifactFinalizationFailureReported = false
     let skillOutcome: TurnSkillOutcome = 'failed'
     let observedStop: ObservedPromptStop | undefined
     const sessionId = handles.sessionId
@@ -82,12 +84,26 @@ export class AcpPromptOutcomeFinalizer {
       await handles.emitArtifact(() => (artifactPublished = true))
       artifactPublished = true
     }
+    const reportArtifactFinalizationFailure = async (): Promise<void> => {
+      if (artifactFinalizationFailureReported) return
+      artifactFinalizationFailureReported = true
+      try {
+        await handles.onArtifactFinalizationFailed?.()
+      } catch (callbackError) {
+        safeLog(
+          'error',
+          'artifact finalization failure callback failed',
+          errorLogFields(callbackError)
+        )
+      }
+    }
     const retryArtifact = async (): Promise<void> => {
       artifactRetryAttempted = true
       try {
         await emitArtifact()
       } catch (error) {
         safeLog('error', 'artifact emit after prompt failure failed', errorLogFields(error))
+        await reportArtifactFinalizationFailure()
       }
     }
     const publishObservedStop = (): boolean => {

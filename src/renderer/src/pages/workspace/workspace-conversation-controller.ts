@@ -6,6 +6,13 @@ import {
 } from '../../../../shared/permission-profiles'
 import type { ChatSession } from '@/stores/session-store'
 import type { WorkspaceAgentRuntime } from '@/lib/acp/useWorkspaceAgentRuntime'
+import { isM2DevelopmentGateEnabled } from '../../../../shared/m2-feature-gate'
+import type {
+  MessageDeliveryCommandResult,
+  MessageDeliveryMode,
+  MessageDeliveryRendererRequest
+} from '../../../../shared/message-delivery'
+import type { PersistedChatMessage } from '../../../../shared/session-persistence'
 
 import {
   docIsEmpty,
@@ -75,6 +82,10 @@ type WorkspaceConversationControllerOptions = {
   syncComputeHosts: (sessionId: string, providerIds: string[]) => Promise<unknown>
   abortFixLoop: (request: { projectId: string; appSessionId: string }) => Promise<unknown>
   getSession: (sessionId: string) => ChatSession | undefined
+  deliverActiveMessage: (
+    request: MessageDeliveryRendererRequest
+  ) => Promise<MessageDeliveryCommandResult>
+  applyMainOwnedUserMessage: (input: { sessionId: string; message: PersistedChatMessage }) => void
 }
 
 type WorkspaceConversationController = {
@@ -91,7 +102,14 @@ type WorkspaceConversationController = {
     revise: (messageId: string, doc: ComposerDoc) => void
     resume: () => Promise<void>
     cancel: () => void
+    activeDelivery: (mode: MessageDeliveryMode) => void
     delete: () => void
+  }
+  activeDelivery: {
+    visible: boolean
+    available: boolean
+    inFlight: boolean
+    backend?: 'codex' | 'opencode'
   }
 }
 
@@ -141,6 +159,29 @@ const canRevise = (options: WorkspaceConversationControllerOptions): boolean => 
   )
 }
 
+const canControlActiveTurn = (options: WorkspaceConversationControllerOptions): boolean => {
+  const { activeSession } = options
+  return Boolean(
+    isM2DevelopmentGateEnabled() &&
+    (activeSession?.agentFrameworkId === 'codex' ||
+      activeSession?.agentFrameworkId === 'opencode') &&
+    activeSession.activeRun &&
+    activeSession.status === 'running' &&
+    !activeSession.compacting &&
+    !activeSession.fixLoopActive &&
+    !options.session.view.specialist.barrierInFlight
+  )
+}
+
+const canSubmitActiveDelivery = (options: WorkspaceConversationControllerOptions): boolean => {
+  const { composer } = options
+  return Boolean(
+    canControlActiveTurn(options) &&
+    composer.view.transfers.length === 0 &&
+    (!docIsEmpty(composer.view.doc) || composer.view.attachments.length > 0)
+  )
+}
+
 const useWorkspaceConversationController = (
   options: WorkspaceConversationControllerOptions
 ): WorkspaceConversationController => {
@@ -149,6 +190,8 @@ const useWorkspaceConversationController = (
     optionsRef.current = options
   }, [options])
   const inFlightDraftKeysRef = useRef(new Set<string>())
+  const activeDeliveryInFlightRef = useRef(false)
+  const [activeDeliveryInFlight, setActiveDeliveryInFlight] = useState(false)
   const [actions] = useState<WorkspaceConversationController['actions']>(() => {
     const submitDraft = ({ forcedSkillIds, mode = 'continue' }: DraftSubmitIntent): void => {
       const current = optionsRef.current
@@ -280,6 +323,58 @@ const useWorkspaceConversationController = (
       if (!result) throw new Error('Unable to respond to the Plan.')
     }
 
+    const submitActiveDelivery = (mode: MessageDeliveryMode): void => {
+      const current = optionsRef.current
+      const activeSession = current.activeSession
+      if (
+        !activeSession ||
+        !canSubmitActiveDelivery(current) ||
+        activeDeliveryInFlightRef.current
+      ) {
+        return
+      }
+
+      const snapshot = current.composer.lifecycle.captureSend()
+      activeDeliveryInFlightRef.current = true
+      setActiveDeliveryInFlight(true)
+      void current
+        .deliverActiveMessage({
+          sessionId: activeSession.id,
+          content: docToText(snapshot.doc),
+          parts: snapshot.doc.nodes,
+          attachments: snapshot.attachments,
+          requested: mode
+        })
+        .then((result) => {
+          if (result.kind === 'delivery' && result.message) {
+            current.applyMainOwnedUserMessage({
+              sessionId: result.sessionId,
+              message: result.message
+            })
+          }
+          if (result.status === 'accepted') {
+            const latest = optionsRef.current
+            const unchanged =
+              latest.currentDraftKey === snapshot.draftKey &&
+              latest.composer.lifecycle.captureSend().version === snapshot.version
+            if (unchanged) latest.composer.lifecycle.clearDraft(snapshot.draftKey)
+            return
+          }
+          current.composer.actions.setError(
+            result.safeErrorCode
+              ? `Active-turn delivery was not accepted (${result.safeErrorCode}).`
+              : 'Active-turn delivery was not accepted.'
+          )
+        })
+        .catch((error: unknown) => {
+          optionsRef.current.composer.actions.setError(errorMessage(error))
+        })
+        .finally(() => {
+          activeDeliveryInFlightRef.current = false
+          setActiveDeliveryInFlight(false)
+        })
+    }
+
     return {
       submit: { draft: submitDraft, restoredPlan: submitRestoredPlan },
       revise: (messageId, doc): void => {
@@ -309,6 +404,7 @@ const useWorkspaceConversationController = (
         }
         void current.runtime.cancelRun(session.id)
       },
+      activeDelivery: submitActiveDelivery,
       delete: (): void => optionsRef.current.session.actions.confirmDelete()
     }
   })
@@ -318,6 +414,14 @@ const useWorkspaceConversationController = (
       submit: canSubmit(options),
       revise: canRevise(options),
       resume: options.isPersistenceReady
+    },
+    activeDelivery: {
+      ...(canControlActiveTurn(options)
+        ? { backend: options.activeSession?.agentFrameworkId === 'opencode' ? 'opencode' : 'codex' }
+        : {}),
+      visible: canControlActiveTurn(options),
+      available: canSubmitActiveDelivery(options),
+      inFlight: activeDeliveryInFlight
     },
     actions
   }

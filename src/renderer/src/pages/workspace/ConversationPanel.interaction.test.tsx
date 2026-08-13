@@ -1499,6 +1499,27 @@ describe('ConversationPanel fix loop lock', () => {
     expect(onCancelRun).toHaveBeenCalledTimes(1)
   })
 
+  it('hides gated active-turn controls while preserving the separate Cancel action', () => {
+    const runningSession: ChatSession = {
+      ...idleSession,
+      agentFrameworkId: 'codex',
+      status: 'running',
+      activeRun: { promptMessageId: 'msg-1', startedAt: Date.now() }
+    }
+    const onActiveDelivery = vi.fn()
+    renderPanel({
+      activeSession: runningSession,
+      canSendMessage: false,
+      activeDelivery: { visible: false, available: false, inFlight: false },
+      onActiveDelivery
+    })
+
+    expect(container.querySelector('[data-testid="active-turn-delivery-trigger"]')).toBeNull()
+    expect(container.querySelector('[data-testid="active-turn-delivery-steer"]')).toBeNull()
+    expect(container.querySelector('[aria-label="Cancel run"]')).not.toBeNull()
+    expect(onActiveDelivery).not.toHaveBeenCalled()
+  })
+
   it('keeps the split-send width while running so adjacent hover controls do not shift', () => {
     const runningSession: ChatSession = {
       ...idleSession,

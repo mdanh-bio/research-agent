@@ -75,11 +75,15 @@ import type { PermissionProfileId } from '../../shared/permission-profiles'
 import { resolveStorageRoot } from '../storage-root'
 import {
   DEFAULT_AGENT_FRAMEWORK_ID,
+  getAgentFramework,
   listAgentFrameworks,
   type AgentModelChangeTarget,
   type AgentFrameworkId,
   type ResolvedAgentBackend
 } from '../agent-framework'
+import { normalizeResponsesBaseUrl } from '../agent-framework/codex'
+import type { CodexAppServerProviderHandoff } from '../codex-app-server/start'
+import { isCodexSubscriptionProvider } from '../../shared/settings'
 import type { ClaudeDetectDeps } from './claude-detect'
 import type { OpencodeDetectDeps } from './opencode-detect'
 import type { CodexDetectDeps } from './codex-detect'
@@ -496,6 +500,76 @@ class SettingsService {
       kind: 'legacy',
       selection: await this.backendResolver.captureConfiguredSelection()
     })
+  }
+
+  // Secret-free identity used by the M2 graph owner when transparent routing is off. This records
+  // the exact configured backend/provider/model without claiming that a routed fallback occurred.
+  async resolveConfiguredDirectTarget(workClass: WorkClass = 'analysis'): Promise<ModelTarget> {
+    const routed = await this.resolveConfiguredRoute(workClass)
+    if (routed) return routed.decision.target
+
+    const settings = await this.migrateLegacyKeyRefs(await this.repository.getSettings())
+    const selection = await this.backendResolver.captureConfiguredSelection()
+    const providerId = settings.activeProviderId
+    const provider = settings.providers.find((candidate) => candidate.id === providerId)
+    const model = settings.activeModel ?? provider?.model ?? provider?.fetchedModels?.[0]
+    if (!providerId || !provider || !model) {
+      throw new Error('A configured provider and model are required for a direct Agent Run root.')
+    }
+    const capabilities: ModelTarget['capabilities'] = [
+      'text',
+      'tool_use',
+      ...(provider.supportsImageInput ? ['image_input' as const] : [])
+    ]
+    return Object.freeze({
+      id: `configured-direct:${selection.frameworkId}:${providerId}:${model}`,
+      backend: selection.frameworkId,
+      providerId,
+      model,
+      reasoningEffort: settings.reasoningEffort ?? 'default',
+      capabilities: Object.freeze(capabilities),
+      dataBoundary: 'any_configured',
+      ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {})
+    })
+  }
+
+  // Resolves the active Codex provider only when the direct app-server generation is about to start.
+  // This is the explicit main-process credential handoff; no key or ambient environment value is
+  // persisted, sent to the renderer, or inherited from ACP.
+  async resolveDirectCodexProviderHandoff(): Promise<CodexAppServerProviderHandoff> {
+    const settings = await this.migrateLegacyKeyRefs(await this.repository.getSettings())
+    const providerId = settings.activeProviderId
+    const storedProvider = settings.providers.find((candidate) => candidate.id === providerId)
+    if (
+      !providerId ||
+      !storedProvider ||
+      (settings.agentFrameworkId ?? DEFAULT_AGENT_FRAMEWORK_ID) !== 'codex'
+    ) {
+      throw new Error('direct_codex_provider_unavailable')
+    }
+
+    const target = this.providers.resolveRuntimeTarget(
+      storedProvider,
+      { kind: 'configured', requestedModel: settings.activeModel },
+      getAgentFramework('codex')
+    )
+    if (!target.frameworkCompatible || !target.modelBridgeSupported) {
+      throw new Error('direct_codex_provider_incompatible')
+    }
+    const model = target.effectiveModel ?? target.provider.model
+    if (isCodexSubscriptionProvider(storedProvider.type)) {
+      return Object.freeze({ kind: 'subscription', ...(model ? { model } : {}) })
+    }
+    if (!target.apiEndpoints.includes('responses')) {
+      throw new Error('direct_codex_requires_responses_provider')
+    }
+    const baseUrl = normalizeResponsesBaseUrl(
+      target.provider.openaiBaseUrl ?? target.provider.baseUrl
+    )
+    if (!baseUrl || !target.provider.key || !model) {
+      throw new Error('direct_codex_provider_credentials_unavailable')
+    }
+    return Object.freeze({ kind: 'api-key', baseUrl, apiKey: target.provider.key, model })
   }
 
   // Projects one of the app's five stable user-intent slots through the active model's static effort

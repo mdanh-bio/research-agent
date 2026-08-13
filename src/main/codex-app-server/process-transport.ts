@@ -9,6 +9,7 @@ export type CodexAppServerProcessOptions = Readonly<{
   cwd?: string
   env?: NodeJS.ProcessEnv
   onStderr?: (text: string) => void
+  configOverrides?: readonly string[]
   spawnProcess?: typeof spawn
 }>
 
@@ -17,6 +18,39 @@ export const CODEX_APP_SERVER_PROCESS_ARGS = Object.freeze(['app-server'] as con
 const PROCESS_GROUP_TERM_GRACE_MS = 3_000
 const PROCESS_GROUP_KILL_GRACE_MS = 1_000
 const PROCESS_GROUP_POLL_MS = 25
+const CODEX_APP_SERVER_CONFIG_OVERRIDE_KEYS = new Set([
+  'model',
+  'model_provider',
+  'model_providers.open-science.name',
+  'model_providers.open-science.wire_api',
+  'model_providers.open-science.base_url',
+  'model_providers.open-science.env_key',
+  'model_providers.open-science.request_max_retries',
+  'model_providers.open-science.stream_max_retries'
+])
+
+const configOverrideArgs = (overrides: readonly string[] | undefined): string[] => {
+  const args: string[] = []
+  for (const override of overrides ?? []) {
+    if (
+      typeof override !== 'string' ||
+      !override.trim() ||
+      override.length > 4_096 ||
+      override.includes('\u0000') ||
+      override.includes('\r') ||
+      override.includes('\n')
+    ) {
+      throw new Error('Codex app-server config override is invalid.')
+    }
+    const separator = override.indexOf('=')
+    const key = separator < 0 ? '' : override.slice(0, separator)
+    if (!CODEX_APP_SERVER_CONFIG_OVERRIDE_KEYS.has(key)) {
+      throw new Error('Codex app-server config override is not allowlisted.')
+    }
+    args.push('-c', override)
+  }
+  return args
+}
 
 const isProcessGroupAlive = (processGroupId: number): boolean => {
   try {
@@ -73,12 +107,16 @@ export class CodexAppServerProcessTransport implements CodexAppServerTransport {
 
   constructor(options: CodexAppServerProcessOptions) {
     const spawnProcess = options.spawnProcess ?? spawn
-    this.process = spawnProcess(options.executablePath, [...CODEX_APP_SERVER_PROCESS_ARGS], {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32'
-    })
+    this.process = spawnProcess(
+      options.executablePath,
+      [...CODEX_APP_SERVER_PROCESS_ARGS, ...configOverrideArgs(options.configOverrides)],
+      {
+        cwd: options.cwd,
+        env: options.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32'
+      }
+    )
     this.posixProcessGroupId = process.platform === 'win32' ? undefined : this.process.pid
     this.reader = createInterface({ input: this.process.stdout, crlfDelay: Infinity })
     this.reader.on('line', (line) => {

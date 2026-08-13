@@ -1,6 +1,6 @@
 # ADR 0003: Integrate Codex through the stable app-server boundary
 
-- Status: Accepted foundation; composer integration pending
+- Status: Accepted through M2 Stage 5 deterministic integration; live/package verification pending
 - Date: 2026-08-10
 
 ## Context

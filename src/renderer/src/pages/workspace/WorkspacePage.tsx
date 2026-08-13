@@ -369,7 +369,10 @@ const WorkspacePage = ({
       window.api.compute.enabledHostsSet(sessionId, providerIds),
     abortFixLoop: (request) => window.api.reviewer.abortFixLoop(request),
     getSession: (sessionId) =>
-      useSessionStore.getState().sessions.find((candidate) => candidate.id === sessionId)
+      useSessionStore.getState().sessions.find((candidate) => candidate.id === sessionId),
+    deliverActiveMessage: (request) => window.api.messageDelivery.deliver(request),
+    applyMainOwnedUserMessage: (input) =>
+      useSessionStore.getState().applyMainOwnedUserMessage(input)
   })
   // "Request review" is disabled when:
   //   - there is no active session or no completed agent turn yet, OR
@@ -522,6 +525,13 @@ const WorkspacePage = ({
       removeUpdatedListener()
     }
   }, [handleReviewUpdate])
+
+  useEffect(() => {
+    const remove = window.api.sideQuestion?.onUpdated?.((record) => {
+      useSessionStore.getState().upsertSideQuestion(record)
+    })
+    return () => remove?.()
+  }, [])
 
   // Subscribe to the loop-guard channel: suppress the next auto-review when the [Auditor]
   // correction prompt is about to fire, so the correction turn's stop does not re-trigger a review.
@@ -892,6 +902,8 @@ const WorkspacePage = ({
             onRemoveAttachment={removeComposerAttachment}
             onCancelAttachmentTransfer={cancelAttachmentTransfer}
             onCancelRun={conversation.actions.cancel}
+            activeDelivery={conversation.activeDelivery}
+            onActiveDelivery={conversation.actions.activeDelivery}
             onResumeSession={conversation.actions.resume}
             onOpenNotebook={openNotebookPreview}
             onTogglePreviewPanel={togglePreviewPanelFromLayout}

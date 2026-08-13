@@ -490,32 +490,72 @@ model RoutingPolicySnapshot {
 
 // One orchestrated unit of work. promptMessageId references authoritative Session JSON instead of
 // copying task text into SQLite.
-model AgentRun {
-  id                    String                @id
-  parentAgentRunId      String?
-  policySnapshotId      String
-  projectId             String
-  sessionId             String
-  promptMessageId       String?
-  role                  String
-  workClass             String
-  runtime               String
-  status                String                @default("queued")
-  budgetJson            String?
-  outputArtifactIdsJson String                @default("[]")
-  createdAt             DateTime              @default(now())
-  startedAt             DateTime?
-  finishedAt            DateTime?
-  parentAgentRun        AgentRun?             @relation("AgentRunParent", fields: [parentAgentRunId], references: [id], onDelete: SetNull)
-  childAgentRuns        AgentRun[]            @relation("AgentRunParent")
-  policySnapshot        RoutingPolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
-  modelAttempts         ModelAttempt[]
-  runtimeThreadLinks    RuntimeThreadLink[]
+model AgentGraph {
+  id                     String            @id
+  projectId              String
+  sessionId              String
+  rootPromptMessageId    String
+  kind                   String            @default("root")
+  lifecycle              String            @default("active")
+  maxConcurrency         Int               @default(4)
+  maxDepth               Int               @default(1)
+  maxChildren            Int               @default(8)
+  totalBudgetJson        String?
+  observedUsageJson      String            @default("{}")
+  cancellationGeneration Int               @default(0)
+  cancelRequestedAt      DateTime?
+  cancellationReason     String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  revision               Int               @default(1)
+  runs                   AgentRun[]
+  deliveries             MessageDelivery[]
 
+  @@unique([projectId, sessionId, rootPromptMessageId])
+  @@index([projectId, sessionId, createdAt])
+  @@index([lifecycle])
+}
+
+model AgentRun {
+  id                       String                @id
+  graphId                  String?
+  frameId                  String?
+  runKind                  String                @default("root")
+  depth                    Int                   @default(0)
+  parentAgentRunId         String?
+  policySnapshotId         String
+  projectId                String
+  sessionId                String
+  promptMessageId          String?
+  role                     String
+  workClass                String
+  runtime                  String
+  status                   String                @default("queued")
+  budgetJson               String?
+  artifactStorageSessionId String?
+  observedBudgetJson       String                @default("{}")
+  outputArtifactIdsJson    String                @default("[]")
+  cancelRequestedAt        DateTime?
+  cancelledAt              DateTime?
+  failureCode              String?
+  createdAt                DateTime              @default(now())
+  startedAt                DateTime?
+  finishedAt               DateTime?
+  updatedAt                DateTime              @updatedAt
+  revision                 Int                   @default(1)
+  graph                    AgentGraph?           @relation(fields: [graphId], references: [id], onDelete: Restrict)
+  parentAgentRun           AgentRun?             @relation("AgentRunParent", fields: [parentAgentRunId], references: [id], onDelete: SetNull)
+  childAgentRuns           AgentRun[]            @relation("AgentRunParent")
+  policySnapshot           RoutingPolicySnapshot @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
+  modelAttempts            ModelAttempt[]
+  runtimeThreadLinks       RuntimeThreadLink[]
+
+  @@unique([graphId, frameId])
   @@index([projectId, sessionId, createdAt])
   @@index([parentAgentRunId])
   @@index([policySnapshotId])
   @@index([status])
+  @@index([graphId, status])
 }
 
 // One exact provider/model attempt. Only a request digest is stored; prompts and attachments stay in
@@ -561,6 +601,13 @@ model RuntimeThreadLink {
   runtimeThreadId       String
   parentRuntimeThreadId String?
   ephemeral             Boolean   @default(false)
+  runtimeOwner          String?
+  authorizedCwd         String?
+  sandbox               String?
+  model                 String?
+  modelProvider         String?
+  approvalPolicy        String?
+  approvalsReviewer     String?
   createdAt             DateTime  @default(now())
   closedAt              DateTime?
   agentRun              AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
@@ -568,4 +615,37 @@ model RuntimeThreadLink {
   @@unique([backend, runtimeThreadId])
   @@index([agentRunId])
   @@index([appSessionId, createdAt])
+  @@index([runtimeOwner, closedAt])
+}
+
+// Durable delivery metadata. The authoritative user Message remains in Session JSON; this table
+// contains only identifiers, closed control values, safe router metadata, and lifecycle timestamps.
+model MessageDelivery {
+  id                    String     @id
+  projectId             String
+  sessionId             String
+  messageId             String
+  graphId               String
+  targetRootRunId       String
+  targetPromptMessageId String
+  backend               String?
+  runtimeThreadId       String?
+  runtimeTurnId         String?
+  requestedMode         String
+  resolvedMode          String?
+  decisionSource        String?
+  routerMetadataJson    String?
+  sequence              Int
+  lifecycle             String     @default("preparing")
+  safeErrorCode         String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  revision              Int        @default(1)
+  graph                 AgentGraph @relation(fields: [graphId], references: [id], onDelete: Restrict)
+
+  @@unique([sessionId, sequence])
+  @@unique([sessionId, messageId])
+  @@index([projectId, sessionId, createdAt])
+  @@index([graphId, lifecycle])
+  @@index([targetRootRunId])
 }

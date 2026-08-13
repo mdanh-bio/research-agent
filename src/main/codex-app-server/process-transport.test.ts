@@ -66,6 +66,48 @@ describe('CodexAppServerProcessTransport', () => {
     await transport.close()
   })
 
+  it('passes only allowlisted credential-free provider overrides as stable config flags', async () => {
+    const child = fakeProcess()
+    const spawnProcess = vi.fn(() => child)
+    const transport = new CodexAppServerProcessTransport({
+      executablePath: '/managed/codex',
+      configOverrides: [
+        'model="gateway-model"',
+        'model_provider="open-science"',
+        'model_providers.open-science.base_url="https://gateway.example.test/v1"'
+      ],
+      spawnProcess: spawnProcess as never
+    })
+
+    expect(spawnProcess).toHaveBeenCalledWith(
+      '/managed/codex',
+      [
+        'app-server',
+        '-c',
+        'model="gateway-model"',
+        '-c',
+        'model_provider="open-science"',
+        '-c',
+        'model_providers.open-science.base_url="https://gateway.example.test/v1"'
+      ],
+      expect.any(Object)
+    )
+    await transport.close()
+  })
+
+  it('rejects non-allowlisted config overrides before spawning', () => {
+    const spawnProcess = vi.fn(() => fakeProcess())
+    expect(
+      () =>
+        new CodexAppServerProcessTransport({
+          executablePath: '/managed/codex',
+          configOverrides: ['sandbox_mode="danger-full-access"'],
+          spawnProcess: spawnProcess as never
+        })
+    ).toThrow('not allowlisted')
+    expect(spawnProcess).not.toHaveBeenCalled()
+  })
+
   it('delegates descendant teardown to the shared escalating process-tree terminator', async () => {
     const child = fakeProcess()
     const transport = new CodexAppServerProcessTransport({

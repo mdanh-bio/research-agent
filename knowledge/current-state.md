@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-08-11.
+Last reviewed: 2026-08-13.
 
 ## Verified baseline
 
@@ -85,6 +85,22 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
 - Fresh or already-encrypted settings no longer query macOS Keychain during legacy-credential
   migration. Secure storage is consulted only when a legacy `plain:` provider or NCBI reference is
   actually present, preventing keyless ad-hoc builds from blocking during startup.
+- M2 Stage 0/1 foundations are locally implemented behind a default-off, non-user-visible gate:
+  backend-honest delivery contracts and CAS journal transitions, additive `AgentGraph`/
+  `MessageDelivery` persistence, graph-owned routing-on/off root runs, bounded direct-child/frame
+  validation, caller-supplied main-generated Session Message IDs/parts/uploads, and explicit
+  abandoned/recoverable/dispatch-ambiguous crash outcomes. Existing M1 rows without a graph remain
+  readable legacy roots; no successful Codex/OpenCode provider exercise has been recorded for M2.
+- M2 Stage 2 direct Codex runtime foundations are locally implemented behind the same default-off
+  gate: a backend-neutral runtime port, a bounded main-process Codex generation owner, validated
+  `RuntimeThreadLink` persistence, allowlisted `AcpRuntimeEvent` projections, exact active-turn and
+  terminal handling, typed approval settlement, fail-closed protocol limits, and explicit idle-only
+  ACP migration metadata. The direct start seam accepts only an app-owned subscription home or an
+  explicit main-process API-key/gateway handoff; ambient credentials, proxy variables, global Codex
+  configuration, and user Skills are excluded. Native custom-provider configuration uses fixed,
+  credential-free, allowlisted `-c` overrides, an explicit API-key environment binding, and zero HTTP
+  or stream retries so one approval cannot fan out into additional model calls. Composer IPC,
+  settings-to-direct-runtime composition, and artifact handoff remain unconnected.
 
 ## Verification status
 
@@ -100,6 +116,78 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   packaged smoke test. Its bundle ID/name, arm64 executable and micromamba 2.8.1 payload, Prisma
   resources/notices, strict deep ad-hoc signature, bootstrap identity, isolated storage root, and
   clean shutdown were verified. The smoke also exposed and verified the fresh-profile Keychain fix.
+- M2 Stage 0/1 local acceptance on Node `v26.3.1` and npm `11.16.0` passed typechecks, web API-map
+  validation, lint with zero errors and 13 inherited warnings, and the full Vitest suite: 907 files
+  passed and 14 skipped; 13,005 tests passed and 190 skipped. Fresh/existing/rollback-compatible
+  SQLite schema cases, graph/delivery recovery, routing-on/off root creation, and corruption checks
+  passed. No managed Codex/OpenCode binary or real provider request was available for live M2 checks.
+- M2 Stage 2 local acceptance on Node `v26.3.1` and npm `11.16.0` passed the focused direct
+  runtime/client rerun (2 files, 35 tests), final node and renderer typechecks, and the full Vitest
+  suite (911 files passed, 14 skipped; 13,027 tests passed, 190 skipped). ESLint reported zero
+  errors and the 13 inherited warnings; `git diff --check` passed. No managed Codex binary handshake
+  or real provider request was available, so this is deterministic local acceptance rather than live
+  provider certification.
+- M2 Stage 3 deterministic acceptance on pinned Node `v22.23.2` and npm `10.9.8` passed the direct
+  delivery/registry/controller/contract focused coverage (4 files, 146 tests after the final
+  authority hardening), node and renderer typechecks, Web API-map validation, lint with zero errors
+  and 34 inherited/style warnings, and the full Vitest suite: 913 files passed and 14 skipped;
+  13,059 tests passed and 190 skipped. The Electron/Web/renderer architecture inventories were
+  updated and passed. `git diff --check` and the relevant Prettier checks passed.
+- M2 Stage 4 deterministic acceptance on Node `v26.3.1` and npm `11.16.0` passed 20 focused files
+  with 448 tests, including a real SQLite MessageDelivery journal and disk-backed Session reload
+  across owner restart. OpenCode queued steering preserves the current prompt, drains FIFO through
+  one CAS claim and one suppressed continuation per item, blocks later items behind a failed/blocked
+  head, enforces queue overflow and stale-parent/deletion/artifact/cancellation barriers, orders Stop
+  and replace as cancel → interaction release → one continuation, and blocks ambiguous dispatch
+  states without replay. Node/web typechecks, Web API-map, lint (zero errors, 13 inherited warnings),
+  Prettier, production build, and `git diff --check` passed. The concurrent full Vitest run recorded
+  one inherited completion-gate timeout (914 passed, 14 skipped files; 13,081 passed, 190 skipped
+  tests); the timeout passed in isolation. No live OpenCode provider request or packaged-app Stage 4
+  journey was run.
+- M2 Stages 3-5 final deterministic acceptance on pinned Node `v22.23.2` and npm `10.9.8`
+  passed the repository-wide Vitest suite: 917 files passed and 14 skipped; 13,092 tests passed and
+  190 skipped. The prior concurrent completion-gate timeout did not recur. Side-question content and
+  lifecycle live in authoritative Session JSON; renderer saves preserve them, while SQLite stores
+  only graph/run/frame/runtime-link/control metadata. Exact approval, parent drift, bounded context,
+  native Codex read-only forks, isolated OpenCode ACP snapshots, timeout/cancellation/cleanup,
+  orphan-run and restart no-replay paths, dedicated cards, and parent-session teardown are locally
+  integrated. Typechecks, Web API map, ACP patch integrity, Prisma format/generate, CLI (37/37),
+  private-package guards (10/10), production build, lint with zero errors, Prettier, and
+  `git diff --check` passed. This was not a live-provider or packaged-app certification.
+- M2 Stage 0-2 repair acceptance on pinned Node `v22.23.2` and npm `10.9.8` passed Prisma
+  format/generate and migration coverage, 12 focused files with 190 tests, node/web typechecks,
+  web API-map validation, lint with zero errors and 13 inherited warnings, the production build, and
+  the full Vitest suite: 911 files passed and 14 skipped; 13,037 tests passed and 190 skipped.
+  `git diff --check` and the scoped credential scan passed.
+- The managed Codex `0.147.0` `darwin-arm64` manifest, executable path, code-owned SHA-256
+  `19c4f144c5226a9f17c58e6f0fa854843b0f77a6eb420f40e2745a12f10f5d37`, and live version probe
+  passed. The approved Techopenclaw `gpt-5.6-sol` zero-retry turn authenticated and reached the
+  endpoint, but the stream closed before `response.completed`; Codex emitted the matching terminal
+  `failed` event, so live certification failed. Usage was unavailable. No other Techopenclaw model,
+  fallback, tool, attachment, approval, or shared-workspace write was used.
+- On 2026-08-12, the final Stage 0-2 rerun after ephemeral-thread repair passed 12 focused files with
+  191 tests and the full Vitest suite: 911 files passed and 14 skipped; 13,038 tests passed and 190
+  skipped. Typechecks, Prisma format/generate, web API map, lint (zero errors, 13 inherited warnings),
+  production build, `git diff --check`, and scoped secret scan passed.
+- Techopenclaw `fugu-ultra` passed one serialized zero-retry live direct-runtime turn: three streamed
+  assistant events/four characters, exact terminal `completed`, input 7,569 tokens, cache-read 7,424,
+  output 43, zero tools/approvals/protocol errors, and clean thread/link/process teardown in 3,639 ms.
+  The saved active model remained `gpt-5.6-sol`. Separate zero-retry probes recorded
+  `gpt-5.6-sol` HTTP 529 overload and `gpt-5.6-terra` stream closure before `response.completed`;
+  neither failure is reported as a successful model certification.
+- On 2026-08-13, M2 Stages 2-5 were reverified from detached commit `f3c095a` under pinned Node
+  `v22.23.2` and npm `10.9.8`. Stage 2 focused coverage passed 8 files/64 tests; Stages 3-5 focused
+  coverage passed 20 files/480 tests; the clean full Vitest suite passed 915 files with 14 skipped
+  and 13,066 tests with 190 skipped. Prisma format/validate/generate, node/web typechecks, Web API
+  map, Claude ACP patch integrity, CLI 37/37, private-package guards 10/10, production build,
+  supported-file Prettier checks, `git diff --check`, and the scoped credential scan passed. ESLint
+  reported zero errors and 13 inherited warnings. The prior concurrent completion-gate timeout did
+  not recur.
+- The same final check ran exactly one serialized zero-retry Techopenclaw `grok-4.5` direct-runtime
+  turn through pinned Codex `0.147.0`. It emitted three streamed assistant events/four characters,
+  matching terminal `completed`, usage of 7,568 input and 38 output tokens, zero tools, approvals, or
+  protocol errors, and clean thread/link/process/temporary-cwd teardown in 27,142 ms. The saved active
+  model remained `gpt-5.6-sol`; no retry, fallback, GLM, or DeepSeek call occurred.
 - Xcode 26.6 is installed, but first-launch/plugin initialization is incomplete, so the adaptive-icon
   `actool` packaging path is not certified. No DMG or ZIP release artifact has been built or verified.
 
@@ -116,9 +204,27 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   override editor and its table is deliberately a user-default preview rather than an active-project
   view. Session/agent pins remain an internal policy seam. Benign-refusal results stop for review
   because no production approval issuer/verifier is connected; no refusal bypass is active.
-- The Codex app-server adapter and delivery-mode contract are not connected to composer IPC or the
-  existing ACP session lifecycle. Durable OpenCode steering queues and the bounded agent graph remain
-  planned.
+- The Stage 3 direct Codex delivery owner is connected through typed main-owned application command,
+  Electron/preload/Web-map, and composer/controller seams, but the M2 gate remains default-off and
+  user-invisible. Settings resolution does not yet expose a user-facing direct-runtime switch;
+  callers still receive an explicit main-process provider handoff. Stage 4 durable OpenCode steering
+  and replacement and Stage 5 read-only side-question children are locally integrated and
+  deterministically tested, including SQLite/journal and disk-backed Session recovery, but no live
+  OpenCode/Codex side-question or packaged-app journey was run. General delegation scheduling and
+  artifact-writing child handoff remain planned for Stage 6 and later.
+- The direct Codex runtime has a successful Techopenclaw `fugu-ultra` Responses path, but the saved
+  `gpt-5.6-sol` target remains upstream-overloaded and is not live-certified. Model-specific
+  availability must remain distinct from runtime/provider-path certification.
+- Stage 3 remains deterministic/local acceptance only: no new live provider, packaged-app composer
+  journey, OpenCode steering, side-question child, remote compute action, commit, or push was
+  performed in this stage.
+- Stage 4 remains deterministic/local acceptance only: no live OpenCode provider request, packaged-app
+  steering journey, side-question child, remote compute action, commit, or push was performed in this
+  stage. The M2 gate remains default-off and user-invisible.
+- Stage 5 remains deterministic/local acceptance only: no live provider request, packaged-app
+  side-question journey, artifact-writing child, delegation scheduler, remote compute action, commit,
+  or push was performed. Stages 6-10 remain incomplete and the M2 gate remains default-off and
+  user-invisible.
 - Interactive SSH is an interface, not a PTY implementation. Background SSH still uses batch mode.
   The scheduler drivers do not yet own production dispatch/polling, restart reattachment, staging, or
   checksum collection. No SSH login or Slurm command has been run.

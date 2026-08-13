@@ -22,7 +22,8 @@ import {
   DATA_BOUNDARIES,
   type DataBoundary,
   type ModelCapability,
-  type ModelTarget
+  type ModelTarget,
+  type WorkClass
 } from '../../shared/model-routing'
 import type { AcpHandoffFailure } from '../../shared/acp'
 import type { ResolvedReasoningEffort } from '../../shared/reasoning-effort'
@@ -70,12 +71,18 @@ type RuntimeFactory = (
 type AcpRuntimeCoordinatorTeardownCallbacks = {
   onSessionTurnStarted?: (sessionId: string, turnToken: string) => void
   onSessionTurnEnded?: (sessionId: string, turnToken: string) => void
+  onSessionRunFinalized?: (sessionId: string) => void
+  onSessionArtifactFinalizationFailed?: (
+    sessionId: string,
+    turnToken: string
+  ) => Promise<void> | void
   onSkillImportAttachmentEligible?: (
     sessionId: string,
     turnToken: string,
     attachmentUri: string
   ) => void
   onSessionCancellationRequested?: (sessionId: string) => void
+  onSessionReady?: (sessionId: string) => void
   onAllSessionsCancellationRequested?: () => void
   beforeSessionDelete?: (sessionId: string) => Promise<void>
 }
@@ -85,6 +92,8 @@ type PermissionGrantSnapshotProvider = () => AcpStateSnapshot['permissionGrants'
 type RoutedModelChangeTargetResolver = (
   target: ModelTarget
 ) => Promise<AgentModelChangeTarget | undefined>
+
+type ConfiguredDirectTargetResolver = (workClass: WorkClass) => Promise<ModelTarget>
 
 export const routingRequestIdentity = (
   request: AcpPromptRequest,
@@ -330,7 +339,8 @@ class AcpRuntimeCoordinator {
     private readonly teardownCallbacks: AcpRuntimeCoordinatorTeardownCallbacks = {},
     private readonly permissionGrantSnapshot?: PermissionGrantSnapshotProvider,
     private readonly routedRuns?: RoutedRunOrchestrator,
-    private readonly resolveRoutedModelChangeTarget?: RoutedModelChangeTargetResolver
+    private readonly resolveRoutedModelChangeTarget?: RoutedModelChangeTargetResolver,
+    private readonly resolveConfiguredDirectTarget?: ConfiguredDirectTargetResolver
   ) {
     this.activeRuntime = this.addRuntime()
     this.lastRuntime = this.activeRuntime
@@ -574,6 +584,7 @@ class AcpRuntimeCoordinator {
     const response = await runtime.createSession(request)
     this.sessionRuntimes.set(response.sessionId, runtime)
     this.lastRuntime = runtime
+    this.teardownCallbacks.onSessionReady?.(response.sessionId)
     return response
   }
 
@@ -635,6 +646,7 @@ class AcpRuntimeCoordinator {
     this.sessionConnectionStatuses.set(response.sessionId, runtime.getSnapshot().status)
     this.lastRuntime = runtime
     if (transfersOwnership) this.callbacks.onStateChanged?.(this.getSnapshot())
+    this.teardownCallbacks.onSessionReady?.(response.sessionId)
     return response
   }
 
@@ -806,7 +818,7 @@ class AcpRuntimeCoordinator {
       'default'
     const dataBoundary = routingDataBoundary(taskRequest)
     let preparedTaskRequest = taskRequest
-    return this.routedRuns.execute(
+    const routed = this.routedRuns.execute(
       {
         projectId,
         sessionId: taskRequest.sessionId,
@@ -814,6 +826,12 @@ class AcpRuntimeCoordinator {
         workClass: taskRequest.workClass ?? 'analysis',
         requiredCapabilities: promptRequiredCapabilities(taskRequest),
         ...(dataBoundary ? { dataBoundary } : {}),
+        ...(this.resolveConfiguredDirectTarget
+          ? {
+              directTarget: () =>
+                this.resolveConfiguredDirectTarget!(taskRequest.workClass ?? 'analysis')
+            }
+          : {}),
         request: async () => {
           if (!this.routedPromptAdmissionActive(admission)) {
             return routedRequestPreparation(taskRequest, [], false, dataBoundary)
@@ -910,10 +928,24 @@ class AcpRuntimeCoordinator {
         })
       }
     )
+    return routed.finally(() =>
+      this.teardownCallbacks.onSessionRunFinalized?.(taskRequest.sessionId)
+    )
   }
 
   sendAppContinuation(request: AcpPromptRequest): ReturnType<AcpRuntime['sendAppContinuation']> {
     return this.dispatchPrompt(request, undefined, 'sendAppContinuation')
+  }
+
+  sendAppContinuationObserved(
+    request: AcpPromptRequest,
+    onProviderPromptAccepted: () => void
+  ): ReturnType<AcpRuntime['sendAppContinuation']> {
+    return this.dispatchPrompt(
+      request,
+      observePromptAcceptance(onProviderPromptAccepted),
+      'sendAppContinuation'
+    )
   }
 
   // Starts an app-owned continuation and resolves only once the provider produces its first update.
@@ -1028,6 +1060,32 @@ class AcpRuntimeCoordinator {
     })
   }
 
+  getActiveDeliveryTurn(
+    sessionId: string,
+    promptMessageId: string
+  ):
+    | Readonly<{
+        backend: 'opencode'
+        backendGeneration: string
+        runtimeThreadId: string
+        turnId: string
+        runtimeSessionId: string
+      }>
+    | undefined {
+    const runtime = this.findRuntimeForSession(sessionId)
+    if (!runtime || runtime.getSessionFramework(sessionId) !== 'opencode') return undefined
+    const turn = runtime.getActiveDeliveryTurn(sessionId, promptMessageId)
+    const backendGeneration = this.runtimeIds.get(runtime)
+    if (!turn || !backendGeneration) return undefined
+    return Object.freeze({
+      backend: 'opencode',
+      backendGeneration,
+      runtimeThreadId: turn.runtimeThreadId,
+      turnId: turn.turnId,
+      runtimeSessionId: sessionId
+    })
+  }
+
   async deleteSession(request: AcpDeleteSessionRequest): Promise<AcpStateSnapshot> {
     this.invalidateSessionTurn(request.sessionId)
     this.activePromptRequests.delete(request.sessionId)
@@ -1093,6 +1151,21 @@ class AcpRuntimeCoordinator {
     rawInput: unknown
   }): Promise<boolean> {
     return this.runtimeForSession(input.sessionId).requestAppApproval(input)
+  }
+
+  // Application-owned work that is deliberately not attached to an ACP primary Session (for
+  // example a direct Codex side question) still uses the active generation's one-shot approval
+  // broker. The supplied Session id scopes the renderer card; it does not attach provider state.
+  async requestDetachedAppApproval(input: {
+    sessionId: string
+    title: string
+    rawInput: unknown
+  }): Promise<boolean> {
+    return this.getActiveRuntime().requestAppApproval(input)
+  }
+
+  cancelDetachedAppApprovals(sessionId: string): void {
+    for (const runtime of this.runtimes) runtime.cancelAppApprovalsForSession(sessionId)
   }
 
   async setPermissionProfile(request: AcpSetPermissionProfileRequest): Promise<AcpStateSnapshot> {
@@ -1181,6 +1254,13 @@ class AcpRuntimeCoordinator {
     request: Parameters<AcpRuntime['buildReviewerSession']>[0]
   ): ReturnType<AcpRuntime['buildReviewerSession']> {
     return this.buildReviewerSessionOnRuntime(this.getActiveRuntime(), request)
+  }
+
+  async buildReviewerSessionForSession(
+    sessionId: string,
+    request: Parameters<AcpRuntime['buildReviewerSession']>[0]
+  ): ReturnType<AcpRuntime['buildReviewerSession']> {
+    return this.buildReviewerSessionOnRuntime(this.runtimeForSession(sessionId), request)
   }
 
   disposeReviewerSession(session: ActiveSession): ReturnType<AcpRuntime['disposeReviewerSession']> {
@@ -1458,6 +1538,8 @@ class AcpRuntimeCoordinator {
             activePrompt.acceptance?.resolve()
           }
         },
+        onArtifactFinalizationFailed: (sessionId, turnToken) =>
+          this.teardownCallbacks.onSessionArtifactFinalizationFailed?.(sessionId, turnToken),
         onBeforeProviderPromptDispatch: async (sessionId, promptAttemptId) => {
           const activePrompt = this.activePromptRequests.get(sessionId)
           if (!activePrompt || activePrompt.attemptId !== promptAttemptId) return 'active'
