@@ -102,7 +102,7 @@ export const validateCodexRuntimeThreadLink = (
   return Object.freeze({ ...value })
 }
 
-const rowToLink = (row: {
+export const codexRuntimeThreadLinkFromRow = (row: {
   id: string
   agentRunId: string
   appSessionId: string
@@ -165,7 +165,7 @@ export class PrismaCodexRuntimeThreadLinkStore implements CodexRuntimeThreadLink
       where: { backend: 'codex', runtimeOwner: 'codex_app_server', closedAt: null },
       orderBy: { createdAt: 'asc' }
     })
-    const links = rows.map(rowToLink)
+    const links = rows.map(codexRuntimeThreadLinkFromRow)
     assertUniqueActiveLinks(links)
     return Object.freeze(links)
   }
@@ -186,7 +186,7 @@ export class PrismaCodexRuntimeThreadLinkStore implements CodexRuntimeThreadLink
     })
     if (rows.length > 1)
       throw new Error(`Duplicate active Codex runtime Session link: ${appSessionId}`)
-    return rows[0] ? rowToLink(rows[0]) : undefined
+    return rows[0] ? codexRuntimeThreadLinkFromRow(rows[0]) : undefined
   }
 
   async save(link: CodexRuntimeThreadLink): Promise<void> {

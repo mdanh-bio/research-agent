@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-08-11.
+Last reviewed: 2026-08-13.
 
 ## Verified baseline
 
@@ -127,6 +127,33 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   errors and the 13 inherited warnings; `git diff --check` passed. No managed Codex binary handshake
   or real provider request was available, so this is deterministic local acceptance rather than live
   provider certification.
+- M2 Stage 3 deterministic acceptance on pinned Node `v22.23.2` and npm `10.9.8` passed the direct
+  delivery/registry/controller/contract focused coverage (4 files, 146 tests after the final
+  authority hardening), node and renderer typechecks, Web API-map validation, lint with zero errors
+  and 34 inherited/style warnings, and the full Vitest suite: 913 files passed and 14 skipped;
+  13,059 tests passed and 190 skipped. The Electron/Web/renderer architecture inventories were
+  updated and passed. `git diff --check` and the relevant Prettier checks passed.
+- M2 Stage 4 deterministic acceptance on Node `v26.3.1` and npm `11.16.0` passed 20 focused files
+  with 448 tests, including a real SQLite MessageDelivery journal and disk-backed Session reload
+  across owner restart. OpenCode queued steering preserves the current prompt, drains FIFO through
+  one CAS claim and one suppressed continuation per item, blocks later items behind a failed/blocked
+  head, enforces queue overflow and stale-parent/deletion/artifact/cancellation barriers, orders Stop
+  and replace as cancel → interaction release → one continuation, and blocks ambiguous dispatch
+  states without replay. Node/web typechecks, Web API-map, lint (zero errors, 13 inherited warnings),
+  Prettier, production build, and `git diff --check` passed. The concurrent full Vitest run recorded
+  one inherited completion-gate timeout (914 passed, 14 skipped files; 13,081 passed, 190 skipped
+  tests); the timeout passed in isolation. No live OpenCode provider request or packaged-app Stage 4
+  journey was run.
+- M2 Stages 3-5 final deterministic acceptance on pinned Node `v22.23.2` and npm `10.9.8`
+  passed the repository-wide Vitest suite: 917 files passed and 14 skipped; 13,092 tests passed and
+  190 skipped. The prior concurrent completion-gate timeout did not recur. Side-question content and
+  lifecycle live in authoritative Session JSON; renderer saves preserve them, while SQLite stores
+  only graph/run/frame/runtime-link/control metadata. Exact approval, parent drift, bounded context,
+  native Codex read-only forks, isolated OpenCode ACP snapshots, timeout/cancellation/cleanup,
+  orphan-run and restart no-replay paths, dedicated cards, and parent-session teardown are locally
+  integrated. Typechecks, Web API map, ACP patch integrity, Prisma format/generate, CLI (37/37),
+  private-package guards (10/10), production build, lint with zero errors, Prettier, and
+  `git diff --check` passed. This was not a live-provider or packaged-app certification.
 - M2 Stage 0-2 repair acceptance on pinned Node `v22.23.2` and npm `10.9.8` passed Prisma
   format/generate and migration coverage, 12 focused files with 190 tests, node/web typechecks,
   web API-map validation, lint with zero errors and 13 inherited warnings, the production build, and
@@ -164,14 +191,27 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   override editor and its table is deliberately a user-default preview rather than an active-project
   view. Session/agent pins remain an internal policy seam. Benign-refusal results stop for review
   because no production approval issuer/verifier is connected; no refusal bypass is active.
-- The direct Codex generation owner and delivery-mode contract are not connected to composer IPC or
-  the existing ACP session lifecycle. Settings resolution does not yet instantiate the direct owner;
-  callers must provide an explicit main-process provider handoff. Durable OpenCode steering queues,
-  child dispatch/approval, provider-side graph scheduling, and artifact handoff remain planned; only
-  the bounded graph/delivery foundations and direct Codex runtime seam are locally integrated.
+- The Stage 3 direct Codex delivery owner is connected through typed main-owned application command,
+  Electron/preload/Web-map, and composer/controller seams, but the M2 gate remains default-off and
+  user-invisible. Settings resolution does not yet expose a user-facing direct-runtime switch;
+  callers still receive an explicit main-process provider handoff. Stage 4 durable OpenCode steering
+  and replacement and Stage 5 read-only side-question children are locally integrated and
+  deterministically tested, including SQLite/journal and disk-backed Session recovery, but no live
+  OpenCode/Codex side-question or packaged-app journey was run. General delegation scheduling and
+  artifact-writing child handoff remain planned for Stage 6 and later.
 - The direct Codex runtime has a successful Techopenclaw `fugu-ultra` Responses path, but the saved
   `gpt-5.6-sol` target remains upstream-overloaded and is not live-certified. Model-specific
   availability must remain distinct from runtime/provider-path certification.
+- Stage 3 remains deterministic/local acceptance only: no new live provider, packaged-app composer
+  journey, OpenCode steering, side-question child, remote compute action, commit, or push was
+  performed in this stage.
+- Stage 4 remains deterministic/local acceptance only: no live OpenCode provider request, packaged-app
+  steering journey, side-question child, remote compute action, commit, or push was performed in this
+  stage. The M2 gate remains default-off and user-invisible.
+- Stage 5 remains deterministic/local acceptance only: no live provider request, packaged-app
+  side-question journey, artifact-writing child, delegation scheduler, remote compute action, commit,
+  or push was performed. Stages 6-10 remain incomplete and the M2 gate remains default-off and
+  user-invisible.
 - Interactive SSH is an interface, not a PTY implementation. Background SSH still uses batch mode.
   The scheduler drivers do not yet own production dispatch/polling, restart reattachment, staging, or
   checksum collection. No SSH login or Slurm command has been run.

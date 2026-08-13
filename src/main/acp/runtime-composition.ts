@@ -73,12 +73,18 @@ type AcpRuntimeCompositionOptions = AcpRuntimeArtifacts & {
   >
   onSessionTurnStarted?: (sessionId: string, turnToken: string) => void
   onSessionTurnEnded?: (sessionId: string, turnToken: string) => void
+  onSessionRunFinalized?: (sessionId: string) => void
+  onSessionArtifactFinalizationFailed?: (
+    sessionId: string,
+    turnToken: string
+  ) => Promise<void> | void
   onSkillImportAttachmentEligible?: (
     sessionId: string,
     turnToken: string,
     attachmentUri: string
   ) => void
   onSessionCancellationRequested?: (sessionId: string) => void
+  onSessionReady?: (sessionId: string) => void
   onSessionUnavailable?: (sessionId: string) => void
   onAllSessionsCancellationRequested?: () => void
   onDisconnected?: () => void
@@ -110,8 +116,11 @@ const createAcpRuntime = ({
   notificationInbox,
   onSessionTurnStarted,
   onSessionTurnEnded,
+  onSessionRunFinalized,
+  onSessionArtifactFinalizationFailed,
   onSkillImportAttachmentEligible,
   onSessionCancellationRequested,
+  onSessionReady,
   onSessionUnavailable,
   onAllSessionsCancellationRequested,
   onDisconnected,
@@ -344,8 +353,11 @@ const createAcpRuntime = ({
     {
       onSessionTurnStarted,
       onSessionTurnEnded,
+      onSessionRunFinalized,
+      onSessionArtifactFinalizationFailed,
       onSkillImportAttachmentEligible,
       onSessionCancellationRequested,
+      onSessionReady,
       onAllSessionsCancellationRequested,
       beforeSessionDelete
     },

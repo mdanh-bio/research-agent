@@ -20,7 +20,9 @@ import {
   SessionPersistenceStateOwner,
   SessionRuntimeContextRevisionConflictError,
   type AppendUserMessageToInteractionCommand,
+  type CreateSideQuestionCardCommand,
   type PatchSessionRuntimeContextCommand,
+  type TransitionSideQuestionCardCommand,
   type SessionMetadata,
   type SessionMetadataSnapshot
 } from './state-owner'
@@ -366,6 +368,35 @@ class SessionPersistenceCoordinator {
     command: AppendUserMessageToInteractionCommand
   ): Promise<PersistedChatMessage> {
     return this.enqueue(() => this.stateOwner.appendUserMessage(command))
+  }
+
+  createSideQuestionCard(
+    command: CreateSideQuestionCardCommand
+  ): Promise<import('../../shared/side-question').PersistedSideQuestion> {
+    return this.enqueue(() => this.stateOwner.createSideQuestionCard(command))
+  }
+
+  getSideQuestionCard(
+    projectId: string,
+    sessionId: string,
+    sideQuestionId: string
+  ): Promise<import('../../shared/side-question').PersistedSideQuestion | undefined> {
+    return this.enqueue(() =>
+      this.stateOwner.getSideQuestionCard(projectId, sessionId, sideQuestionId)
+    )
+  }
+
+  listSideQuestionCards(
+    projectId: string,
+    sessionId: string
+  ): Promise<readonly import('../../shared/side-question').PersistedSideQuestion[]> {
+    return this.enqueue(() => this.stateOwner.listSideQuestionCards(projectId, sessionId))
+  }
+
+  transitionSideQuestionCard(
+    command: TransitionSideQuestionCardCommand
+  ): Promise<import('../../shared/side-question').PersistedSideQuestion> {
+    return this.enqueue(() => this.stateOwner.transitionSideQuestionCard(command))
   }
 
   // Project archive must fail closed when even one child Session cannot be read. A partial catalog

@@ -104,6 +104,7 @@ export interface AgentRuntimePort {
   readState(appSessionId: string): Promise<AgentRuntimeSessionState>
   startTurn(request: AgentRuntimeTurnRequest): Promise<AgentRuntimeTurnAdmission>
   cancel(appSessionId: string, expectedTurnId?: string): Promise<void>
+  interruptAndAwaitTerminal?(appSessionId: string, expectedTurnId: string): Promise<void>
   closeSession(appSessionId: string): Promise<void>
   close(): Promise<void>
   onEvent(listener: (event: AgentRuntimeEvent) => void): () => void

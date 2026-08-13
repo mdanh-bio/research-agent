@@ -25,6 +25,7 @@ import type {
 import type { CompletionHandoffLifecycleEvent, PendingSwitchBroadcast } from '../shared/specialist'
 import type { MigrationProgress } from '../shared/storage'
 import type { UpdateStatus } from '../shared/update'
+import type { PersistedSideQuestion } from '../shared/side-question'
 
 // This catalog describes only events that already flow through renderer-broadcast. Window-only
 // signals and generated Web-only channels stay on their existing transports until their owner moves
@@ -42,6 +43,7 @@ export type ApplicationEventMap = {
   'session:created': SessionUpsertEvent
   'session:updated': SessionUpsertEvent
   'session:deleted': SessionDeletedEvent
+  'side-question:updated': PersistedSideQuestion
   'project-files:changed': ProjectFilesChangedEvent
   'permissions:changed': PermissionGrantsChangedEvent
   'connectors:approval-request': ConnectorApprovalRequest

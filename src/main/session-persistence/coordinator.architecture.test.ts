@@ -393,10 +393,13 @@ describe('Session persistence coordinator architecture', () => {
         'assertSessionAvailable',
         'completeProjectSessionDeletion',
         'containsMessageOnActiveBranch',
+        'createSideQuestionCard',
         'deleteProjectSessions',
         'deleteSession',
         'getProjectSessionDeletionState',
+        'getSideQuestionCard',
         'listLegacyProjectSessionTombstones',
+        'listSideQuestionCards',
         'loadAll',
         'loadAllReadOnly',
         'markCommittedProjectSessionsPrepared',
@@ -410,6 +413,7 @@ describe('Session persistence coordinator architecture', () => {
         'sessionMetadataSnapshot',
         'sessionProjectId',
         'setSessionDeletionHandlers',
+        'transitionSideQuestionCard',
         'updateArchive'
       ].sort()
     )
@@ -692,7 +696,10 @@ describe('Session persistence coordinator architecture', () => {
         'appendUserMessage',
         'beginHydration',
         'containsMessageOnActiveBranch',
+        'createSideQuestionCard',
+        'getSideQuestionCard',
         'invalidateBindingTopology',
+        'listSideQuestionCards',
         'markMetadataIncomplete',
         'metadataSnapshot',
         'patchRuntimeContext',
@@ -702,7 +709,8 @@ describe('Session persistence coordinator architecture', () => {
         'removeSession',
         'replaceMetadata',
         'saveSession',
-        'sessionProjectId'
+        'sessionProjectId',
+        'transitionSideQuestionCard'
       ].sort()
     )
     expect(methods(stateOwner, 'private')).toEqual(['loadRuntimeContextSession'])

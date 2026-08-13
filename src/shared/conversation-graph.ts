@@ -679,8 +679,11 @@ export const createChildAgentFrame = (
   const parent = frames.get(input.parentFrameId)
   if (!parent) throw new Error(`Agent Frame parent is missing: ${input.parentFrameId}`)
   if (parent.parentFrameId) throw new Error('Grandchild Agent Frames are not supported.')
-  if (parent.status !== 'running') {
-    throw new Error('A child Agent Frame requires a running parent Frame.')
+  if (
+    parent.status !== 'running' &&
+    !(input.kind === 'side-question' && parent.status === 'completed')
+  ) {
+    throw new Error('A child Agent Frame requires a running or completed parent Frame.')
   }
   const parentBranch = next.branches.find((branch) => branch.id === parent.activeBranchId)
   if (!parentBranch) throw new Error('Agent Frame parent active Branch is missing.')

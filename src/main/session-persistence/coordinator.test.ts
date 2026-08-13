@@ -165,6 +165,134 @@ const createProjectReconciliationSnapshot = (): ArtifactProjectReconciliationSna
   ({}) as ArtifactProjectReconciliationSnapshot
 
 describe('SessionPersistenceCoordinator', () => {
+  it('persists side-question cards and child Frames as one Session-owned mutation', async () => {
+    let durable = materializeSessionConversationGraph(
+      createSession({
+        messages: [
+          {
+            id: 'parent-message',
+            role: 'user',
+            content: 'Analyze the cohort.',
+            status: 'complete',
+            eventIds: [],
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ]
+      })
+    )
+    const repository = createSessionRepository({
+      loadSessionWithDiagnostics: vi.fn(async () => ({
+        status: 'found' as const,
+        session: durable
+      })),
+      saveSession: vi.fn(async (session) => {
+        durable = structuredClone(session)
+      })
+    })
+    const coordinator = new SessionPersistenceCoordinator(repository, createFileIndex())
+    const rootFrameId = durable.conversationGraph!.rootFrameId
+    const card = {
+      id: 'side-question-1',
+      projectId: durable.projectId,
+      sessionId: durable.id,
+      parentGraphId: 'graph-1',
+      parentAgentRunId: 'root-run-1',
+      childAgentRunId: 'child-run-1',
+      parentFrameId: rootFrameId,
+      childFrameId: 'child-frame-1',
+      parentPromptMessageId: 'parent-message',
+      runtimeSessionId: 'side-question-1:runtime',
+      backend: 'codex' as const,
+      ephemeral: true as const,
+      sandbox: 'read-only' as const,
+      context: { messages: [], references: [], truncated: false },
+      question: 'What assumption is fragile?',
+      lifecycle: 'preparing' as const,
+      createdAt: 10,
+      updatedAt: 10
+    }
+
+    await expect(coordinator.createSideQuestionCard({ card })).resolves.toMatchObject({
+      id: card.id,
+      lifecycle: 'preparing'
+    })
+    expect(durable.sideQuestions).toEqual([card])
+    expect(durable.conversationGraph?.frames).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'child-frame-1',
+          parentFrameId: rootFrameId,
+          kind: 'side-question',
+          status: 'running'
+        })
+      ])
+    )
+
+    await coordinator.transitionSideQuestionCard({
+      projectId: durable.projectId,
+      sessionId: durable.id,
+      sideQuestionId: card.id,
+      lifecycle: 'awaiting-approval'
+    })
+    await coordinator.transitionSideQuestionCard({
+      projectId: durable.projectId,
+      sessionId: durable.id,
+      sideQuestionId: card.id,
+      lifecycle: 'cancelled',
+      update: { safeFailureCode: 'side_question_approval_declined', completedAt: 12 }
+    })
+    expect(durable.sideQuestions?.[0]).toMatchObject({
+      lifecycle: 'cancelled',
+      safeFailureCode: 'side_question_approval_declined'
+    })
+    expect(
+      durable.conversationGraph?.frames.find((frame) => frame.id === 'child-frame-1')
+    ).toMatchObject({
+      status: 'cancelled'
+    })
+  })
+
+  it('preserves main-owned side-question cards across renderer whole-session saves', async () => {
+    const card = {
+      id: 'side-question-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      parentGraphId: 'graph-1',
+      parentAgentRunId: 'root-run-1',
+      childAgentRunId: 'child-run-1',
+      parentFrameId: 'root-frame',
+      childFrameId: 'child-frame',
+      parentPromptMessageId: 'parent-message',
+      backend: 'opencode' as const,
+      ephemeral: true as const,
+      sandbox: 'read-only' as const,
+      context: { messages: [], references: [], truncated: false },
+      question: 'Why?',
+      lifecycle: 'completed' as const,
+      answer: 'Because.',
+      runtimeDisposed: true,
+      runtimeLinkClosed: true,
+      createdAt: 2,
+      updatedAt: 3,
+      completedAt: 3
+    }
+    const authoritative = createSession({ sideQuestions: [card] })
+    let saved: PersistedChatSession | undefined
+    const repository = createSessionRepository({
+      loadSessionWithDiagnostics: vi.fn(async () => ({
+        status: 'found' as const,
+        session: authoritative
+      })),
+      saveSession: vi.fn(async (session) => {
+        saved = session
+      })
+    })
+    const coordinator = new SessionPersistenceCoordinator(repository, createFileIndex())
+    await coordinator.saveSession(createSession({ title: 'Renderer title', sideQuestions: [] }))
+    expect(saved?.title).toBe('Renderer title')
+    expect(saved?.sideQuestions).toEqual([card])
+  })
   it('resolves Message membership from the durable active Branch', async () => {
     const prompt = (id: string, createdAt: number): PersistedChatMessage => ({
       id,

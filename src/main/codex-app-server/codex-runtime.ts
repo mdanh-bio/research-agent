@@ -681,6 +681,16 @@ export class CodexRuntimeGenerationOwner implements AgentRuntimePort {
     record.state.updatedAt = this.now()
   }
 
+  // Delivery owns the stop-and-replace barrier. This seam deliberately exposes only the exact
+  // expected turn and waits for the same terminal notification used by runtime teardown.
+  async interruptAndAwaitTerminal(appSessionId: string, expectedTurnId: string): Promise<void> {
+    await this.cancel(appSessionId, expectedTurnId)
+    const record = this.requireRecord(appSessionId)
+    if (record.activeTurnId === expectedTurnId && !record.terminalTurnIds.has(expectedTurnId)) {
+      await this.waitForTerminal(record, expectedTurnId)
+    }
+  }
+
   async closeSession(appSessionId: string): Promise<void> {
     const record = this.records.get(requiredIdentifier(appSessionId, 'Runtime Session id'))
     if (!record) return

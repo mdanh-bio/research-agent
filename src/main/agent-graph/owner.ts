@@ -70,6 +70,10 @@ export type CreateChildAgentRunInput = Readonly<{
   policySnapshotId?: string
   budget?: AgentRunBudget
   artifactStorageSessionId?: string
+  // Side questions may be asked after the root turn has reached an idle terminal state. This
+  // exception is intentionally closed to the side-question run kind; delegate admission still
+  // requires a running root and an active graph.
+  allowIdleParent?: boolean
 }>
 
 export type FinishAgentRunOptions = Readonly<{
@@ -566,7 +570,12 @@ class AgentGraphOwner {
       if (graph.projectId !== projectId || graph.sessionId !== sessionId) {
         throw new Error('Child Agent Run scope does not match its Agent Graph.')
       }
-      if (graph.lifecycle !== 'active') {
+      const isSideQuestion = input.runKind === 'side-question'
+      const idleSideQuestionAdmission = isSideQuestion && input.allowIdleParent === true
+      if (
+        graph.lifecycle !== 'active' &&
+        !(idleSideQuestionAdmission && graph.lifecycle === 'completed')
+      ) {
         throw new Error('A child cannot be admitted to an inactive or cancelling Agent Graph.')
       }
       const limits = validateAgentGraphLimits({
@@ -583,7 +592,10 @@ class AgentGraphOwner {
       ) {
         throw new Error('Child Agent Run parent is missing or belongs to another graph.')
       }
-      if (parent.status !== 'running') {
+      if (
+        parent.status !== 'running' &&
+        !(idleSideQuestionAdmission && parent.status === 'completed')
+      ) {
         throw new Error('A child requires a running parent Agent Run.')
       }
       if (parent.runKind !== 'root' || parent.depth !== 0 || parent.depth >= limits.maxDepth) {
@@ -600,6 +612,14 @@ class AgentGraphOwner {
       })
       if (activeCount >= limits.maxConcurrency) {
         throw new Error('Agent Graph concurrency limit has been reached.')
+      }
+      if (idleSideQuestionAdmission && graph.lifecycle === 'completed') {
+        // Re-open only the graph admission window. The completed root run, its frame, prompt, and
+        // cancellation generation remain unchanged; the graph closes again when this child settles.
+        await transaction.agentGraph.updateMany({
+          where: { id: graphId, lifecycle: 'completed', revision: graph.revision },
+          data: { lifecycle: 'active', updatedAt: createdAt, revision: { increment: 1 } }
+        })
       }
       const policySnapshotId = input.policySnapshotId ?? parent.policySnapshotId
       const policySnapshot = await transaction.routingPolicySnapshot.findUnique({
@@ -638,6 +658,18 @@ class AgentGraphOwner {
         }
       })
       return runProjection(created)
+    })
+  }
+
+  async createSideQuestionChild(
+    input: Omit<CreateChildAgentRunInput, 'runKind' | 'allowIdleParent'> & {
+      allowIdleParent?: boolean
+    }
+  ): Promise<AgentRunProjection> {
+    return this.createChild({
+      ...input,
+      runKind: 'side-question',
+      allowIdleParent: input.allowIdleParent ?? true
     })
   }
 
@@ -749,15 +781,23 @@ class AgentGraphOwner {
     if (activeCount > 0) return
     const runs = await transaction.agentRun.findMany({
       where: { graphId },
-      select: { status: true }
+      select: { status: true, runKind: true, parentAgentRunId: true }
     })
-    const lifecycle: AgentGraphLifecycle = runs.some(({ status }) => status === 'blocked')
-      ? 'blocked'
-      : runs.some(({ status }) => status === 'failed')
-        ? 'failed'
-        : runs.some(({ status }) => status === 'cancelled')
-          ? 'cancelled'
-          : 'completed'
+    const root = runs.find(
+      ({ runKind, parentAgentRunId }) => runKind === 'root' && !parentAgentRunId
+    )
+    if (!root) throw new Error(`Agent Graph ${graphId} has no root Agent Run.`)
+    // Child outcomes remain visible on their own runs/cards but cannot rewrite the root task's
+    // terminal result. This matters when a completed idle root is temporarily reopened solely to
+    // admit a side question: a failed child must not turn the successful parent graph into failed.
+    const lifecycle: AgentGraphLifecycle =
+      root.status === 'blocked'
+        ? 'blocked'
+        : root.status === 'failed'
+          ? 'failed'
+          : root.status === 'cancelled'
+            ? 'cancelled'
+            : 'completed'
     await transaction.agentGraph.updateMany({
       where: { id: graphId, lifecycle: { notIn: ['completed', 'failed', 'cancelled', 'blocked'] } },
       data: { lifecycle, updatedAt: now, revision: { increment: 1 } }
@@ -821,6 +861,19 @@ class AgentGraphOwner {
       await this.getClient()
     ).agentRun.findMany({
       where: { graphId },
+      orderBy: { createdAt: 'asc' }
+    })
+    return Object.freeze(runs.map(runProjection))
+  }
+
+  async listSessionSideQuestionRuns(
+    projectId: string,
+    sessionId: string
+  ): Promise<readonly AgentRunProjection[]> {
+    const runs = await (
+      await this.getClient()
+    ).agentRun.findMany({
+      where: { projectId, sessionId, runKind: 'side-question' },
       orderBy: { createdAt: 'asc' }
     })
     return Object.freeze(runs.map(runProjection))

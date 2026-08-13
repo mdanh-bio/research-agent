@@ -279,6 +279,26 @@ describe('AcpPromptOutcomeFinalizer', () => {
     )
   })
 
+  it('reports unrecoverable Artifact finalization before releasing the interaction', async () => {
+    const harness = createHarness()
+    const artifactError = new Error('artifact finalization failed')
+    const reportFailure = vi.fn(async () => {
+      harness.journal.push('artifact:failed')
+    })
+    harness.handles.emitArtifact = vi.fn().mockRejectedValue(artifactError)
+    harness.handles.onArtifactFinalizationFailed = reportFailure
+    expect(harness.interactions.captureTerminal(harness.interaction, 'stop')).toBe(true)
+
+    await expect(new AcpPromptOutcomeFinalizer().finalize(harness.handles, stopped())).rejects.toBe(
+      artifactError
+    )
+
+    expect(reportFailure).toHaveBeenCalledOnce()
+    expect(harness.journal.indexOf('artifact:failed')).toBeLessThan(
+      harness.journal.indexOf('interaction:after-release')
+    )
+  })
+
   it.each([
     {
       name: 'context overflow',

@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type { AcpContextUsage } from '../../../shared/acp'
 import type { PermissionProfileId } from '../../../shared/permission-profiles'
 import type { UpdateSessionArchiveRequest } from '../../../shared/session-persistence'
+import type { PersistedSideQuestion } from '../../../shared/side-question'
 import { createSessionMessageGraphOwner } from './session-store-message-graph-owner'
 import type { SessionMessageGraphActions } from './session-store-message-graph-helpers'
 import {
@@ -61,6 +62,7 @@ type SessionStore = SessionStoreData &
     // Toggles whether a conversation is pinned to the top section of the sidebar.
     togglePinned: (sessionId: string) => void
     updateSessionArchive: (request: UpdateSessionArchiveRequest) => Promise<ChatSession>
+    upsertSideQuestion: (record: PersistedSideQuestion) => void
     // Sets or clears the per-session fix loop active flag. When true, the composer send button is
     // disabled for this session; when false (loop ended or cancelled), send is re-enabled.
     setFixLoopActive: (sessionId: string, active: boolean) => void
@@ -89,6 +91,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   ...createSessionPersistenceOwner<SessionStore>(set),
 
   ...createSessionRunProjectionOwner<SessionStore>(set, get),
+
+  upsertSideQuestion: (record) => {
+    set((state) => ({
+      sessions: state.sessions.map((session) => {
+        if (session.id !== record.sessionId || session.projectId !== record.projectId)
+          return session
+        const current = session.sideQuestions ?? []
+        const index = current.findIndex((candidate) => candidate.id === record.id)
+        const sideQuestions = [...current]
+        if (index < 0) sideQuestions.push(record)
+        else sideQuestions[index] = record
+        return { ...session, sideQuestions }
+      })
+    }))
+  },
 
   // Flags a session dropped by a live connection loss so the Resume banner appears; like failRun it
   // settles any half-streamed message/open tool so nothing hangs in a perpetually-running state.

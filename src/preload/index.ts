@@ -94,6 +94,15 @@ const api: OpenScienceAPI = {
   lifecycle: {
     getClientId: () => electronRendererContracts.invoke('lifecycle.getClientId')
   },
+  messageDelivery: {
+    deliver: (request) => electronRendererContracts.invoke('messageDelivery.deliver', request)
+  },
+  sideQuestion: {
+    list: (sessionId) => electronRendererContracts.invoke('sideQuestion.list', sessionId),
+    cancel: (sessionId, sideQuestionId) =>
+      electronRendererContracts.invoke('sideQuestion.cancel', sessionId, sideQuestionId),
+    onUpdated: (listener) => electronRendererContracts.subscribe('sideQuestion.onUpdated', listener)
+  },
   diagnostics: {
     reportRendererFailure: (report) =>
       electronRendererContracts.send('diagnostics.reportRendererFailure', report)

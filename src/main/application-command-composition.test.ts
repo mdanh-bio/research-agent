@@ -47,6 +47,8 @@ const project = (id: string): Project => ({
 const dependencies = (): ApplicationCommandCompositionDependencies =>
   ({
     acp: EMPTY_OWNER,
+    messageDelivery: { owner: EMPTY_OWNER, enabled: false },
+    sideQuestion: { owner: EMPTY_OWNER, enabled: false },
     notebook: EMPTY_OWNER,
     notebookEnvironment: EMPTY_OWNER,
     notebookRuntime: EMPTY_OWNER,
@@ -174,16 +176,19 @@ const invocation = (
 }
 
 describe('application command composition', () => {
-  it('joins the six runtime-validated Project contracts into the Electron view', () => {
+  it('joins the runtime-validated Project and gated delivery contracts into the Electron view', () => {
     const composition = createApplicationCommandComposition(dependencies())
 
     expect(composition.electron.commandNames()).toEqual([
+      'message-delivery:deliver',
       'projects:create',
       'projects:delete',
       'projects:get',
       'projects:list',
       'projects:update',
-      'projects:update-archive'
+      'projects:update-archive',
+      'side-question:cancel',
+      'side-question:list'
     ])
   })
 
@@ -191,7 +196,7 @@ describe('application command composition', () => {
     const composition = createApplicationCommandComposition(dependencies())
 
     expect(composition.localWeb.commandNames()).toEqual(expectedLocalWebCommands())
-    expect(composition.localWeb.commandNames()).toHaveLength(235)
+    expect(composition.localWeb.commandNames()).toHaveLength(238)
   })
 
   it('partitions remote Web dispatch from fail-closed pre-dispatch rejections', async () => {
@@ -206,7 +211,7 @@ describe('application command composition', () => {
     )
 
     expect(composition.remoteWeb.commandNames()).toEqual(expectedRemoteCommands())
-    expect(composition.remoteWeb.commandNames()).toHaveLength(173)
+    expect(composition.remoteWeb.commandNames()).toHaveLength(176)
     expect(composition.remoteWeb.rejectedCommandNames()).toEqual(expectedRemoteRejections())
     expect(composition.remoteWeb.rejectedCommandNames()).toHaveLength(62)
     await expect(
@@ -253,10 +258,29 @@ describe('application command composition', () => {
     )
     expect(composition).not.toHaveProperty('registrar')
     expect(composition).not.toHaveProperty('dispatcher')
-    expect(composition.electron.commandNames()).toHaveLength(6)
+    expect(composition.electron.commandNames()).toHaveLength(9)
     expect(composition).not.toHaveProperty('cli')
     expect(composition).not.toHaveProperty('localRpc')
     expect(composition).not.toHaveProperty('specialist')
+  })
+
+  it('keeps the M2 delivery command fail-closed while the development gate is off', async () => {
+    const deliver = vi.fn()
+    const composition = createApplicationCommandComposition({
+      ...dependencies(),
+      messageDelivery: { owner: { deliver }, enabled: false }
+    })
+    const request = {
+      sessionId: 'session-1',
+      content: 'Steer the active task.',
+      requested: 'steer'
+    }
+    const commandInvocation = { ...invocation(), args: Object.freeze([request]) }
+
+    await expect(
+      composition.electron.invoke('message-delivery:deliver', commandInvocation)
+    ).rejects.toThrow('M2 delivery is not enabled.')
+    expect(deliver).not.toHaveBeenCalled()
   })
 
   it('late-binds the single Remote Access owner and fails closed around its lifetime', async () => {
@@ -302,6 +326,8 @@ describe('application command composition', () => {
   it('installs every registrar family in a fixed order and stops at a partial failure', () => {
     const orderedNames = [
       'acp',
+      'messageDelivery',
+      'sideQuestion',
       'notebook',
       'notebookEnvironment',
       'notebookRuntime',
@@ -332,7 +358,9 @@ describe('application command composition', () => {
     expect(reads).toEqual(orderedNames)
     expect(normalEvents).toEqual(orderedNames.map((_, index) => `install:${index}`))
     composition.dispose()
-    expect(normalEvents.slice(11)).toEqual([
+    expect(normalEvents.slice(13)).toEqual([
+      'uninstall:12',
+      'uninstall:11',
       'uninstall:10',
       'uninstall:9',
       'uninstall:8',
@@ -422,7 +450,9 @@ describe('application command composition', () => {
     expect(
       (disposalFailure as AggregateError).errors.map((error) => (error as Error).message)
     ).toEqual(['uninstall failed:10', 'uninstall failed:3', 'router dispose failed'])
-    expect(disposeFailureEvents.slice(11)).toEqual([
+    expect(disposeFailureEvents.slice(13)).toEqual([
+      'uninstall:12',
+      'uninstall:11',
       'uninstall:10',
       'uninstall:9',
       'uninstall:8',
@@ -445,7 +475,7 @@ describe('application command composition', () => {
       ((invocation: ApplicationInvocation<readonly unknown[]>) => unknown) | undefined
     const slotFailureEvents: string[] = []
     installInstrumentedRouterFactory(slotFailureEvents, {
-      failCompleteAt: 10,
+      failCompleteAt: 12,
       failRouterDispose: true,
       onRegisterGroup: (groupName, handlers) => {
         if (groupName !== 'remote-access') return
@@ -466,8 +496,10 @@ describe('application command composition', () => {
     expect(slotConstructionFailure).toBeInstanceOf(AggregateError)
     expect(
       (slotConstructionFailure as AggregateError).errors.map((error) => (error as Error).message)
-    ).toEqual(['complete failed:10', 'router dispose failed'])
-    expect(slotFailureEvents.slice(11)).toEqual([
+    ).toEqual(['complete failed:12', 'router dispose failed'])
+    expect(slotFailureEvents.slice(13)).toEqual([
+      'uninstall:11',
+      'uninstall:10',
       'uninstall:9',
       'uninstall:8',
       'uninstall:7',

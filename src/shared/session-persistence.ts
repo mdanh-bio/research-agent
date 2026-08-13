@@ -17,6 +17,7 @@ import {
   type PermissionProfileId
 } from './permission-profiles'
 import type { AgentFrameworkId } from './settings'
+import { validatePersistedSideQuestion, type PersistedSideQuestion } from './side-question'
 import { sanitizeActivityGroupTitle } from './activity-groups'
 import { sanitizeElicitationProjection, type ElicitationProjection } from './elicitation'
 import {
@@ -269,6 +270,9 @@ export type PersistedChatSession = {
   messages: PersistedChatMessage[]
   // Session JSON v2 authority. Flat messages/activities remain an active-Branch compatibility view.
   conversationGraph?: PersistedConversationGraph
+  // Main-owned side-question cards. Renderer whole-session saves must preserve the authoritative
+  // collection; only dedicated main-process mutations may create or transition these records.
+  sideQuestions?: PersistedSideQuestion[]
   activities?: PersistedToolActivity[]
   activityGroups?: PersistedActivityGroup[]
   activeRun?: PersistedActiveRun
@@ -1292,7 +1296,7 @@ const sanitizeConversationGraph = (
           !id ||
           !activeBranchId ||
           !kind ||
-          !['root', 'reviewer', 'delegate', 'compatibility'].includes(kind) ||
+          !['root', 'reviewer', 'delegate', 'side-question', 'compatibility'].includes(kind) ||
           !originBindingState ||
           !['root', 'validated', 'legacy-unavailable'].includes(originBindingState) ||
           !status ||
@@ -1664,6 +1668,16 @@ const sanitizeSession = (
   if (runtimeContext) sanitized.runtimeContext = runtimeContext
   const planHistoryProjections = sanitizePlanHistoryProjections(session.planHistoryProjections)
   if (planHistoryProjections) sanitized.planHistoryProjections = planHistoryProjections
+  if (Array.isArray(session.sideQuestions)) {
+    const sideQuestions = session.sideQuestions.flatMap((candidate) => {
+      try {
+        return [validatePersistedSideQuestion(candidate as PersistedSideQuestion)]
+      } catch {
+        return []
+      }
+    })
+    if (sideQuestions.length > 0) sanitized.sideQuestions = sideQuestions
+  }
   if (sanitized.status === 'waiting-plan-approval' && runtimeContext?.plan === undefined) {
     // Approval waiting is meaningful only with restorable main-owned Plan authority. A corrupt or
     // unknown context must not leave the conversation permanently blocked with nothing to approve.

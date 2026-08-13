@@ -7,6 +7,7 @@ import type {
   ElicitationResponse,
   PendingElicitationRequest
 } from '../../../../shared/acp'
+import type { MessageDeliveryMode } from '../../../../shared/message-delivery'
 import type { NotebookSessionReference } from '../../../../shared/notebook'
 import type {
   PermissionProfileId,
@@ -296,6 +297,15 @@ type ConversationPanelProps = {
   onRemoveAttachment: (attachment: UploadedAttachment) => void
   onCancelAttachmentTransfer: (transfer: ComposerUploadTransfer) => void
   onCancelRun: () => void
+  // Default-off M2 active-turn controls. The main process remains the authority for the selected
+  // target; this surface only submits content plus the requested mode.
+  activeDelivery?: {
+    visible: boolean
+    available: boolean
+    inFlight: boolean
+    backend?: 'codex' | 'opencode'
+  }
+  onActiveDelivery?: (mode: MessageDeliveryMode) => void
   onResumeSession: () => Promise<void>
   onOpenNotebook: (notebook: NotebookSessionReference) => void
   onTogglePreviewPanel?: () => void
@@ -373,6 +383,8 @@ const ConversationPanel = ({
   onRemoveAttachment,
   onCancelAttachmentTransfer,
   onCancelRun,
+  activeDelivery = { visible: false, available: false, inFlight: false },
+  onActiveDelivery = () => undefined,
   onResumeSession,
   onOpenNotebook,
   onTogglePreviewPanel = () => undefined,
@@ -458,6 +470,7 @@ const ConversationPanel = ({
         : undefined
 
   const sessionActivities = activeSession?.activities ?? []
+  const sideQuestions = activeSession?.sideQuestions ?? []
   // Runtime requests and activity events can reach the renderer in either order. Whichever arrives
   // first must reserve the single bottom interaction lane so the ordinary composer never competes
   // with a question that is waiting for an answer.
@@ -635,6 +648,50 @@ const ConversationPanel = ({
             onRetryHandoff={(request) => workspaceHandoffLifecycleClient.retry(request)}
           />
         </WorkspaceMessageEditStateProvider>
+
+        {sideQuestions.length > 0 ? (
+          <section
+            className="mx-4 mb-2 grid gap-2"
+            aria-label="Side questions"
+            data-testid="side-question-cards"
+          >
+            {sideQuestions.map((record) => (
+              <article
+                key={record.id}
+                className="rounded-xl border border-border-200 bg-bg-000 px-3 py-2 text-[12px]"
+                data-testid={`side-question-card-${record.id}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-text-100">Side question</span>
+                  <span className="text-[10px] uppercase tracking-wide text-text-300">
+                    {record.lifecycle.replaceAll('-', ' ')}
+                  </span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-text-200">{record.question}</p>
+                {record.answer !== undefined ? (
+                  <p className="mt-2 whitespace-pre-wrap border-t border-border-200 pt-2 text-text-100">
+                    {record.answer}
+                    {record.answerTruncated ? ' (truncated)' : ''}
+                  </p>
+                ) : null}
+                {record.safeFailureCode ? (
+                  <p className="mt-2 text-red-400" role="status">
+                    {record.safeFailureCode}
+                  </p>
+                ) : null}
+                {!['completed', 'failed', 'cancelled', 'blocked'].includes(record.lifecycle) ? (
+                  <button
+                    type="button"
+                    className="mt-2 rounded border border-border-200 px-2 py-1 text-[11px] text-text-300 hover:bg-bg-200"
+                    onClick={() => void window.api.sideQuestion.cancel(record.sessionId, record.id)}
+                  >
+                    Cancel side question
+                  </button>
+                ) : null}
+              </article>
+            ))}
+          </section>
+        ) : null}
 
         <div className="relative shrink-0">
           <div
@@ -1166,12 +1223,71 @@ const ConversationPanel = ({
                           <div
                             data-testid="composer-running-control-slot"
                             className={cn(
-                              'flex shrink-0 justify-end',
+                              'flex shrink-0 items-center justify-end gap-1',
                               onPlanFirst || onBranchInNewSession
                                 ? 'w-16 [@media(pointer:coarse)]:mx-3'
                                 : 'w-8'
                             )}
                           >
+                            {activeDelivery.visible ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    disabled={!activeDelivery.available || activeDelivery.inFlight}
+                                    className={cn(
+                                      composerIconButtonClassName,
+                                      'w-auto px-2 text-[11px]'
+                                    )}
+                                    aria-label="Active task controls"
+                                    data-testid="active-turn-delivery-trigger"
+                                  >
+                                    {activeDelivery.backend === 'opencode'
+                                      ? activeDelivery.inFlight
+                                        ? 'Waiting for current turn'
+                                        : 'Queued steering'
+                                      : activeDelivery.inFlight
+                                        ? 'Sending…'
+                                        : 'Active task'}
+                                    <ChevronDown className="ml-1 size-3" aria-hidden="true" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent side="top" align="end" className="w-56">
+                                  <DropdownMenuItem
+                                    data-testid="active-turn-delivery-auto"
+                                    disabled={!activeDelivery.available}
+                                    onSelect={() => onActiveDelivery('auto')}
+                                  >
+                                    Auto
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    data-testid="active-turn-delivery-steer"
+                                    disabled={!activeDelivery.available}
+                                    onSelect={() => onActiveDelivery('steer')}
+                                  >
+                                    {activeDelivery.backend === 'opencode'
+                                      ? 'Queued steering'
+                                      : 'Steer active task'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    data-testid="active-turn-delivery-side-question"
+                                    disabled={!activeDelivery.available}
+                                    onSelect={() => onActiveDelivery('side-question')}
+                                  >
+                                    Ask side question
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    data-testid="active-turn-delivery-stop-replace"
+                                    disabled={!activeDelivery.available}
+                                    onSelect={() => onActiveDelivery('stop-and-replace')}
+                                    className="text-red-500 focus:text-red-500"
+                                  >
+                                    Stop and replace
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            ) : null}
                             <button
                               type="button"
                               onClick={onCancelRun}

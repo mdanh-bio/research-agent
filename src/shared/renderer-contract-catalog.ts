@@ -205,6 +205,14 @@ export const RENDERER_CONTRACT_GROUPS = Object.freeze([
   group('lifecycle', 'lifecycle', [
     ['getClientId', 'lifecycle:client-id'],
   ]),
+  group('message-delivery', 'messageDelivery', [
+    ['deliver', 'message-delivery:deliver', WEB, undefined, undefined, RUNTIME_VALIDATED],
+  ]),
+  group('side-question', 'sideQuestion', [
+    ['list', 'side-question:list', WEB, undefined, undefined, RUNTIME_VALIDATED],
+    ['cancel', 'side-question:cancel', WEB, undefined, undefined, RUNTIME_VALIDATED],
+    ['onUpdated', 'side-question:updated', EVENT],
+  ]),
   group('local-fs', 'localFs', [
     ['getRoots', 'local-fs:get-roots', LOCAL], ['listDir', 'local-fs:list-dir', LOCAL], ['openPath', 'local-fs:open-path', LOCAL],
     ['readPreview', 'local-fs:read-preview', LOCAL], ['reveal', 'local-fs:reveal', LOCAL],

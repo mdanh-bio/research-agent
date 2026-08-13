@@ -159,7 +159,14 @@ describe('workspace page architecture', () => {
     ]) {
       expect(conversationSource).not.toContain(directOwner)
     }
-    for (const intent of ['submit:', 'revise:', 'resume:', 'cancel:', 'delete:']) {
+    for (const intent of [
+      'submit:',
+      'revise:',
+      'resume:',
+      'cancel:',
+      'activeDelivery:',
+      'delete:'
+    ]) {
       expect(conversationSource).toContain(intent)
     }
   })

@@ -223,6 +223,8 @@ const composeAcpRuntimePromptOwners = (
       errorMessage,
       errorKind: acpErrorKind,
       pushEvent: (event) => session.publication.pushEvent(event),
+      onArtifactFinalizationFailed: (sessionId, turnToken) =>
+        callbacks.onArtifactFinalizationFailed?.(sessionId, turnToken),
       onPromptEnded: (sessionId, turnToken) => callbacks.onPromptEnded?.(sessionId, turnToken),
       generationActivityChanged: base.notifyGenerationActivityChanged,
       autoCompact: (sessionId, active, interaction) =>

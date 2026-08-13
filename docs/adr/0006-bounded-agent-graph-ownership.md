@@ -1,6 +1,6 @@
 # ADR 0006: Persist a bounded root-plus-child graph in main-process authority
 
-- Status: Accepted for M2 Stage 0; runtime/child dispatch pending
+- Status: Accepted through M2 Stage 5 side-question dispatch; delegation scheduling pending
 - Date: 2026-08-11
 
 ## Context

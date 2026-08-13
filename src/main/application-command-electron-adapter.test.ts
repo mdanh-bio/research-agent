@@ -19,12 +19,15 @@ vi.mock('./ipc-handler-registry', () => ({
 import { registerApplicationCommandElectronAdapter } from './application-command-electron-adapter'
 
 const projectChannels = [
+  'message-delivery:deliver',
   'projects:create',
   'projects:delete',
   'projects:get',
   'projects:list',
   'projects:update',
-  'projects:update-archive'
+  'projects:update-archive',
+  'side-question:cancel',
+  'side-question:list'
 ] as const
 
 const eventWithLease = (): IpcMainInvokeEvent => {

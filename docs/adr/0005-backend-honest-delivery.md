@@ -1,6 +1,6 @@
 # ADR 0005: Keep delivery behavior honest at the backend boundary
 
-- Status: Accepted for M2 Stage 0; runtime integration pending
+- Status: Accepted through M2 Stage 5 deterministic integration; live/package verification pending
 - Date: 2026-08-11
 
 ## Context

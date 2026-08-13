@@ -26,6 +26,16 @@ import {
   type DataContentApplicationCommandDependencies
 } from './data-content-application-commands'
 import {
+  messageDeliveryApplicationCommandGroup,
+  registerMessageDeliveryCommands,
+  type MessageDeliveryCommandDependencies
+} from './agent-graph/message-delivery-commands'
+import {
+  sideQuestionApplicationCommandGroup,
+  registerSideQuestionCommands,
+  type SideQuestionCommandDependencies
+} from './agent-graph/side-question-commands'
+import {
   hostApplicationCommandGroups,
   registerHostApplicationCommands,
   type HostApplicationCommandDependencies
@@ -86,6 +96,8 @@ type RemoteWebApplicationCommandDispatcher = ApplicationCommandByNameDispatcher 
 
 type ApplicationCommandCompositionDependencies = Readonly<{
   acp: AcpApplicationCommandDependencies
+  messageDelivery: MessageDeliveryCommandDependencies
+  sideQuestion: SideQuestionCommandDependencies
   notebook: NotebookApplicationCommandDependencies
   notebookEnvironment: NotebookEnvironmentDependencies
   notebookRuntime: RuntimeApplicationCommandDependencies
@@ -107,13 +119,13 @@ type ApplicationCommandComposition = Readonly<{
   dispose: () => void
 }>
 
-const GROUP_COUNT = 28
-const INTERNAL_COMMAND_COUNT = 237
-const LOCAL_WEB_COMMAND_COUNT = 235
-const REMOTE_WEB_COMMAND_COUNT = 173
+const GROUP_COUNT = 30
+const INTERNAL_COMMAND_COUNT = 240
+const LOCAL_WEB_COMMAND_COUNT = 238
+const REMOTE_WEB_COMMAND_COUNT = 176
 const REMOTE_REJECTED_COMMAND_COUNT = 62
 const TASK_COMMAND_COUNT = 7
-const VALIDATED_ELECTRON_COMMAND_COUNT = 6
+const VALIDATED_ELECTRON_COMMAND_COUNT = 9
 
 const ELECTRON_NATIVE_COMMAND_NAMES = Object.freeze([
   'sessions:export-conversation',
@@ -132,6 +144,8 @@ const TASK_COMMAND_NAMES = Object.freeze([
 
 const APPLICATION_COMMAND_GROUPS = Object.freeze([
   acpApplicationCommands,
+  messageDeliveryApplicationCommandGroup,
+  sideQuestionApplicationCommandGroup,
   notebookApplicationCommands,
   notebookEnvironmentApplicationCommands,
   runtimeApplicationCommandGroup,
@@ -282,6 +296,8 @@ const createApplicationCommandComposition = (
 
   const installers = [
     () => registerAcpCommands(router.registrar, dependencies.acp),
+    () => registerMessageDeliveryCommands(router.registrar, dependencies.messageDelivery),
+    () => registerSideQuestionCommands(router.registrar, dependencies.sideQuestion),
     () => installNotebookApplicationCommands(router.registrar, dependencies.notebook),
     () =>
       installNotebookEnvironmentApplicationCommands(

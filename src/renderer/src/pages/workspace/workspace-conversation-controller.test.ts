@@ -88,6 +88,14 @@ const options = (
     syncComputeHosts: vi.fn(() => Promise.resolve()),
     abortFixLoop: vi.fn(() => Promise.resolve()),
     getSession: (sessionId) => (sessionId === 'session-a' ? session() : undefined),
+    deliverActiveMessage: vi.fn(() =>
+      Promise.resolve({
+        kind: 'delivery' as const,
+        status: 'accepted' as const,
+        sessionId: 'session-a'
+      })
+    ),
+    applyMainOwnedUserMessage: vi.fn(),
     ...overrides
   }
 }
@@ -292,5 +300,38 @@ describe('workspace conversation controller', () => {
 
     expect(input.runtime.resumeInterruptedSession).toHaveBeenCalledWith('session-a')
     expect(input.session.actions.confirmDelete).toHaveBeenCalledOnce()
+  })
+
+  it('keeps active-turn controls hidden while the M2 gate is off and preserves Cancel', () => {
+    const input = options({
+      activeSession: session({
+        agentFrameworkId: 'codex',
+        status: 'running',
+        activeRun: { promptMessageId: 'prompt-a', startedAt: 1 }
+      })
+    })
+    const hook = renderController(input)
+    mounted.push(hook)
+
+    expect(hook.result.current.activeDelivery).toEqual({
+      visible: false,
+      available: false,
+      inFlight: false
+    })
+    act(() => hook.result.current.actions.activeDelivery('steer'))
+    act(() => hook.result.current.actions.cancel())
+    expect(input.runtime.cancelRun).toHaveBeenCalledWith('session-a')
+  })
+
+  it('leaves the ordinary idle Send path unchanged', () => {
+    const input = options({ activeSession: session({ status: 'idle' }) })
+    const hook = renderController(input)
+    mounted.push(hook)
+
+    expect(hook.result.current.availability.submit).toBe(true)
+    act(() => hook.result.current.actions.submit.draft({ forcedSkillIds: [] }))
+    expect(input.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session-a', text: 'hello' })
+    )
   })
 })

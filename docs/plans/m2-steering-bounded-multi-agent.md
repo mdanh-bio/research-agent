@@ -1,8 +1,8 @@
 # Implementation Plan: M2 — Steering and Bounded Multi-Agent Work
 
-Last updated: 2026-08-11. Owner: Anh. Base commit: `6cdf94b` on `main`.
+Last updated: 2026-08-13. Owner: Anh. Stage 0-2 baseline: `3645449` on `m2`.
 
-Execution status: **Stages 0, 1, and 2 executed locally; Stages 3+ remain planning only**. The Stage
+Execution status: **Stages 0 through 5 executed locally; Stages 6+ remain planning only**. The Stage
 0/1/2 deterministic exit gates pass under pinned Node `22.23.2` on 2026-08-11, and the managed Codex
 `0.147.0` binary/manifest/handshake is verified. A zero-retry Techopenclaw `fugu-ultra` turn passed
 with streamed output, usage, its exact terminal completion, and clean teardown; the requested
@@ -372,11 +372,11 @@ composer remains usable and honest about the selected behavior.
 
 ### Things that must be achieved
 
-- [ ] The renderer can submit an active-turn message with an explicit mode but cannot select its
+- [x] The renderer can submit an active-turn message with an explicit mode but cannot select its
       actual thread, turn, parent run, route, or approval identity.
-- [ ] Every decision is bound to the exact active turn observed at admission.
-- [ ] Codex native steer and stop-and-replace work through the production runtime.
-- [ ] Auto cannot turn uncertain input into cancellation or redirection.
+- [x] Every decision is bound to the exact active turn observed at admission.
+- [x] Codex native steer and stop-and-replace work through the production runtime seam.
+- [x] Auto cannot turn uncertain input into cancellation or redirection.
 
 ### What should be done
 
@@ -413,21 +413,30 @@ composer remains usable and honest about the selected behavior.
 
 ### What should be checked or confirmed
 
-- [ ] Renderer payloads that forge a run/thread/turn/route/backend/approval field are stripped or
+- [x] Renderer payloads that forge a run/thread/turn/route/backend/approval field are stripped or
       rejected.
-- [ ] A turn-change race between click and dispatch never targets the newer turn.
-- [ ] Codex steer does not create a new turn and does not interrupt the active one.
-- [ ] Stop-and-replace starts exactly one replacement only after old-turn terminal confirmation.
-- [ ] Auto classifier failure always chooses side question and never modifies message bytes.
-- [ ] Session deletion, archive, graph-sync failure, upload failure, or persistence failure blocks the
+- [x] A turn-change race between click and dispatch never targets the newer turn.
+- [x] Codex steer does not create a new turn and does not interrupt the active one.
+- [x] Stop-and-replace starts exactly one replacement only after old-turn terminal confirmation.
+- [x] Auto classifier failure always chooses side question and never modifies message bytes.
+- [x] Session deletion, archive, graph-sync failure, upload failure, or persistence failure blocks the
       external action and preserves the draft.
-- [ ] Existing idle Send, plan-first, branch, edit, permission, fix-loop, and cancel tests remain green.
+- [x] Existing idle Send, plan-first, branch, edit, permission, fix-loop, and cancel tests remain green.
 
 ### Stage exit gate
 
 With fake transports, every delivery decision has one durable message, one journal row, one exact
 target turn, and at most one backend action. Codex behavior passes; OpenCode Steer remains visibly
 unavailable until Stage 4.
+
+Stage 3 local status: **passed for deterministic implementation and integration coverage** on
+2026-08-12. The renderer request is limited to Session/content/parts/attachments/requested mode;
+main resolves and rechecks the root graph, runtime generation, thread, turn, and cancellation
+generation. Direct Codex steer and stop-and-replace pass focused fake-runtime coverage, including
+fresh-session reload, archive/deletion, runtime-resolution failure, stale replacement, idle barrier,
+duplicate-link rejection, attachment-only persistence, exact-once main-owned projection, and disposal.
+The M2 gate remains default-off and user-invisible. OpenCode queued steering and side-question
+execution remain later-stage owners; deterministic tests are not live provider certification.
 
 ---
 
@@ -440,10 +449,10 @@ provider turn.
 
 ### Things that must be achieved
 
-- [ ] A queued steering message survives renderer reload and app restart.
-- [ ] The current OpenCode prompt continues untouched.
-- [ ] Queue delivery is FIFO and exactly once at the Research Agent dispatch boundary.
-- [ ] Ambiguous post-dispatch restart state blocks instead of replaying.
+- [x] A queued steering message survives renderer reload and app restart.
+- [x] The current OpenCode prompt continues untouched.
+- [x] Queue delivery is FIFO and exactly once at the Research Agent dispatch boundary.
+- [x] Ambiguous post-dispatch restart state blocks instead of replaying.
 
 ### What should be done
 
@@ -475,21 +484,34 @@ provider turn.
 
 ### What should be checked or confirmed
 
-- [ ] Enqueueing never invokes ACP cancel or prompt for the current turn.
-- [ ] Multiple messages drain in sequence and do not duplicate visible transcript messages.
-- [ ] A queue item added as the parent finishes is either part of the next drain or safely queued,
+- [x] Enqueueing never invokes ACP cancel or prompt for the current turn.
+- [x] Multiple messages drain in sequence and do not duplicate visible transcript messages.
+- [x] A queue item added as the parent finishes is either part of the next drain or safely queued,
       never lost between states.
-- [ ] Crash injection before claim, after claim, before provider acceptance, after acceptance, and
+- [x] Crash injection before claim, after claim, before provider acceptance, after acceptance, and
       after completion produces the defined state without duplicate dispatch.
-- [ ] Queue overflow, stale parent binding, archived session, failed artifact finalization, and
+- [x] Queue overflow, stale parent binding, archived session, failed artifact finalization, and
       cancellation all fail closed.
-- [ ] Stop-and-replace cannot overlap two OpenCode prompts for the same session.
+- [x] Stop-and-replace cannot overlap two OpenCode prompts for the same session.
 
 ### Stage exit gate
 
 The pinned fake OpenCode agent proves FIFO persistence, current-turn preservation, exact-once local
 dispatch, replacement ordering, and restart/error behavior. UI copy accurately distinguishes queued
 from native steering.
+
+Stage 4 local status: **passed for deterministic implementation and integration coverage** on
+2026-08-12. OpenCode delivery rows use the persisted
+`preparing -> queued -> dispatching -> accepted -> completed` lifecycle with fail-closed terminal
+branches, per-session FIFO sequencing, queue caps, CAS claiming, exact-once suppressed continuations,
+parent-finalization/artifact/recovery barriers, and startup reconciliation. Focused Stage 4 and
+adjacent integration coverage passed 20 files with 448 tests, including a real SQLite journal plus
+disk-backed Session reload across owner restart. Node/web typechecks, Web API-map, lint, Prettier,
+production build, and `git diff --check` passed. The concurrent full Vitest run recorded 914 passed
+files, 14 skipped, 13,081 passed tests, and 190 skipped with one inherited
+`completion-gate.execute-control.integration.test.ts` timeout; that test passed in isolation. No live
+OpenCode provider request or packaged-app Stage 4 journey was performed, and the M2 gate remains
+default-off and user-invisible.
 
 ---
 
@@ -502,11 +524,11 @@ the parent task.
 
 ### Things that must be achieved
 
-- [ ] Side questions have explicit child graph/run/frame/thread lineage.
-- [ ] Parent turn IDs, interaction locks, models, messages, and cancellation state do not change.
-- [ ] Side-question runtime access is read-only and consequential tools fail without prompting the
+- [x] Side questions have explicit child graph/run/frame/thread lineage.
+- [x] Parent turn IDs, interaction locks, models, messages, and cancellation state do not change.
+- [x] Side-question runtime access is read-only and consequential tools fail without prompting the
       parent user flow.
-- [ ] The child result persists while its runtime session is ephemeral and cleaned up.
+- [x] The child result persists while its runtime session is ephemeral and cleaned up.
 
 ### What should be done
 
@@ -532,18 +554,32 @@ the parent task.
 
 ### What should be checked or confirmed
 
-- [ ] Parent streaming continues while the child starts and finishes.
-- [ ] Parent active thread/turn, model, interaction owner, artifacts, and message branch are unchanged.
-- [ ] Codex fork is ephemeral, distinct, read-only, and bound to the intended stable turn.
-- [ ] OpenCode child context excludes partial active output and stays under replay limits.
-- [ ] Attempted child writes/tools are declined without granting or leaking parent permissions.
-- [ ] Child timeout/failure is isolated and frees its graph slot exactly once.
-- [ ] Session deletion and quit leave no child process, runtime session, link, or approval pending.
+- [x] Parent streaming continues while the child starts and finishes.
+- [x] Parent active thread/turn, model, interaction owner, artifacts, and message branch are unchanged.
+- [x] Codex fork is ephemeral, distinct, read-only, and bound to the intended stable turn.
+- [x] OpenCode child context excludes partial active output and stays under replay limits.
+- [x] Attempted child writes/tools are declined without granting or leaking parent permissions.
+- [x] Child timeout/failure is isolated and frees its graph slot exactly once.
+- [x] Session deletion and quit leave no child process, runtime session, link, or approval pending.
 
 ### Stage exit gate
 
 Codex and OpenCode side-question integration tests show the parent completing normally, the child
 answering independently, all write attempts denied, and all ephemeral resources cleaned up.
+
+Stage 5 local status: **passed for deterministic implementation and integration coverage** on
+2026-08-13 under pinned Node `22.23.2`. Authoritative Session JSON owns bounded side-question cards,
+content, immutable references, lifecycle, and answers; renderer saves preserve that main-owned state.
+SQLite remains limited to graph/run/frame/runtime-link/control metadata. Admission durably creates one
+card and one child run/frame before returning; exact approval, parent drift, timeout, cancellation,
+cleanup failure, orphan-run recovery, and restart no-replay paths fail closed and release graph
+authority exactly once. Codex uses a distinct verified read-only native fork and OpenCode uses an
+isolated restricted ACP snapshot session. Explicit and safe-default Auto delivery reach the owner
+before any primary transcript append, and the dedicated card persists across reload. The final full
+Vitest run passed 917 files and 13,092 tests (14 files and 190 tests skipped); the prior concurrent
+completion-gate timeout did not recur. This is deterministic/local acceptance only: no live provider,
+packaged-app journey, remote compute, commit, or push was performed. The M2 gate remains default-off
+and user-invisible, Stages 6-10 remain unchecked, and M2 overall remains incomplete.
 
 ---
 

@@ -34,6 +34,17 @@ export type TransitionMessageDeliveryOptions = Readonly<{
   safeErrorCode?: string
 }>
 
+export const DEFAULT_OPENCODE_QUEUE_LIMIT = 8
+
+const OPEN_CODE_PENDING_LIFECYCLES = [
+  'preparing',
+  'ready',
+  'queued',
+  'dispatching',
+  'accepted',
+  'dispatched'
+] as const
+
 const SAFE_ERROR_CODE = /^[a-z0-9][a-z0-9._-]{0,127}$/u
 
 const safeErrorCode = (value: string | undefined): string | undefined => {
@@ -50,6 +61,8 @@ const routerMetadataJson = (
     ...(metadata.confidence === undefined ? {} : { confidence: metadata.confidence }),
     ...(metadata.classifierAttemptId ? { classifierAttemptId: metadata.classifierAttemptId } : {}),
     ...(metadata.modelId ? { modelId: metadata.modelId } : {}),
+    ...(metadata.policyId ? { policyId: metadata.policyId } : {}),
+    ...(metadata.policyVersion ? { policyVersion: metadata.policyVersion } : {}),
     ...(metadata.reasonCode ? { reasonCode: metadata.reasonCode } : {})
   })
 }
@@ -241,6 +254,21 @@ class MessageDeliveryJournal {
           )
           return Object.freeze({ delivery: toProjection(existing), created: false })
         }
+        if (
+          request.backend === 'opencode' &&
+          (decision.resolved === 'steer' || decision.resolved === 'stop-and-replace')
+        ) {
+          const pendingCount = await transaction.messageDelivery.count({
+            where: {
+              sessionId: request.sessionId,
+              backend: 'opencode',
+              lifecycle: { in: [...OPEN_CODE_PENDING_LIFECYCLES] }
+            }
+          })
+          if (pendingCount >= (request.maxPendingQueueItems ?? DEFAULT_OPENCODE_QUEUE_LIMIT)) {
+            throw new Error('queue_overflow')
+          }
+        }
         const last = await transaction.messageDelivery.findFirst({
           where: { sessionId: request.sessionId },
           orderBy: { sequence: 'desc' },
@@ -305,6 +333,105 @@ class MessageDeliveryJournal {
     ).messageDelivery.findUnique({ where: { id: deliveryId } })
     if (!row) throw new Error(`Unknown Message Delivery: ${deliveryId}`)
     return toProjection(row)
+  }
+
+  async listForSession(sessionId: string): Promise<readonly MessageDeliveryProjection[]> {
+    validateMessageDeliveryIdentifier(sessionId, 'Message Delivery session id')
+    const rows = await (
+      await this.getClient()
+    ).messageDelivery.findMany({
+      where: { sessionId },
+      orderBy: { sequence: 'asc' }
+    })
+    return Object.freeze(rows.map(toProjection))
+  }
+
+  async listPendingOpenCodeSessionIds(): Promise<readonly string[]> {
+    const rows = await (
+      await this.getClient()
+    ).messageDelivery.findMany({
+      where: {
+        backend: 'opencode',
+        lifecycle: {
+          in: ['preparing', 'ready', 'queued', 'dispatching', 'accepted', 'dispatched']
+        }
+      },
+      select: { sessionId: true },
+      distinct: ['sessionId']
+    })
+    return Object.freeze(rows.map(({ sessionId }) => sessionId))
+  }
+
+  // Claims exactly one OpenCode item at the dispatch boundary. A completed/cancelled/abandoned row
+  // may be passed, but an earlier failed/blocked/ambiguous row remains a FIFO blocker.
+  async claimNextOpenCodeQueued(sessionId: string): Promise<MessageDeliveryProjection | undefined> {
+    validateMessageDeliveryIdentifier(sessionId, 'Message Delivery session id')
+    const client = await this.getClient()
+    return client.$transaction(async (transaction) => {
+      const rows = await transaction.messageDelivery.findMany({
+        where: { sessionId, backend: 'opencode' },
+        orderBy: { sequence: 'asc' }
+      })
+      const passable = new Set<MessageDeliveryLifecycle>(['completed', 'cancelled', 'abandoned'])
+      const first = rows.find((row) => !passable.has(row.lifecycle as MessageDeliveryLifecycle))
+      if (!first || first.lifecycle !== 'queued') return undefined
+      const changed = await transaction.messageDelivery.updateMany({
+        where: { id: first.id, lifecycle: 'queued', revision: first.revision },
+        data: {
+          lifecycle: 'dispatching',
+          updatedAt: new Date(),
+          revision: { increment: 1 }
+        }
+      })
+      if (changed.count !== 1) return undefined
+      return toProjection(
+        await transaction.messageDelivery.findUniqueOrThrow({ where: { id: first.id } })
+      )
+    })
+  }
+
+  // A process restart cannot prove that an ACP continuation was not accepted. These boundaries are
+  // therefore terminally blocked until a future user-directed retry path is added; no replay occurs.
+  async recoverOpenCodeDispatches(
+    sessionId?: string
+  ): Promise<readonly MessageDeliveryProjection[]> {
+    if (sessionId !== undefined)
+      validateMessageDeliveryIdentifier(sessionId, 'Message Delivery session id')
+    const client = await this.getClient()
+    return client.$transaction(async (transaction) => {
+      const rows = await transaction.messageDelivery.findMany({
+        where: {
+          backend: 'opencode',
+          ...(sessionId ? { sessionId } : {}),
+          lifecycle: { in: ['dispatching', 'accepted', 'dispatched'] }
+        },
+        orderBy: { sequence: 'asc' }
+      })
+      const recovered: MessageDeliveryProjection[] = []
+      for (const row of rows) {
+        const changed = await transaction.messageDelivery.updateMany({
+          where: {
+            id: row.id,
+            lifecycle: row.lifecycle,
+            revision: row.revision
+          },
+          data: {
+            lifecycle: 'blocked',
+            safeErrorCode: 'dispatch_ambiguous',
+            updatedAt: new Date(),
+            revision: { increment: 1 }
+          }
+        })
+        if (changed.count === 1) {
+          recovered.push(
+            toProjection(
+              await transaction.messageDelivery.findUniqueOrThrow({ where: { id: row.id } })
+            )
+          )
+        }
+      }
+      return Object.freeze(recovered)
+    })
   }
 
   async transition(

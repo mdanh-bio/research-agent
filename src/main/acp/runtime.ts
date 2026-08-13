@@ -137,6 +137,7 @@ export type AcpRuntimeCallbacks = {
   // Fires after the provider prompt yields its first update/terminal response. Reaching this point
   // proves startup did not reject before the provider accepted the request.
   onProviderPromptAccepted?: (sessionId: string, promptAttemptId?: string) => void
+  onArtifactFinalizationFailed?: (sessionId: string, turnToken: string) => Promise<void> | void
   onPromptEnded?: (sessionId: string, turnToken: string) => void
   onSkillImportAttachmentEligible?: (
     sessionId: string,
@@ -648,6 +649,26 @@ class AcpRuntime {
   // A session keeps its original framework while a different active backend is prepared elsewhere.
   getSessionFramework(sessionId: string): AgentFrameworkId | undefined {
     return this.sessionRegistry.lookup(sessionId)?.aggregate.snapshot().frameworkId
+  }
+
+  getActiveDeliveryTurn(
+    appSessionId: string,
+    promptMessageId: string
+  ): Readonly<{ runtimeThreadId: string; turnId: string }> | undefined {
+    const attachment = this.sessionRegistry.lookup(appSessionId)?.attachment
+    const interaction = this.sessionInteractions.current(appSessionId)
+    if (
+      !attachment ||
+      !interaction ||
+      interaction.kind !== 'prompt' ||
+      interaction.promptMessageId !== promptMessageId
+    ) {
+      return undefined
+    }
+    return Object.freeze({
+      runtimeThreadId: attachment.providerSessionId,
+      turnId: interaction.turnToken
+    })
   }
 
   // Invokes the framework's own context compaction command on the attached agent session. The
@@ -1331,6 +1352,10 @@ class AcpRuntime {
     rawInput: unknown
   }): Promise<boolean> {
     return this.permissionContext.requestAppApproval(input)
+  }
+
+  cancelAppApprovalsForSession(sessionId: string): void {
+    this.permissionContext.cancelForSession(sessionId)
   }
 
   // Lazily initializes the process connection before session creation.

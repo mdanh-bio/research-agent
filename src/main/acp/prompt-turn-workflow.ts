@@ -105,6 +105,7 @@ type AcpPromptTurnFinalization = Readonly<{
   errorMessage: AcpPromptFinalizationHandles['errorMessage']
   errorKind: AcpPromptFinalizationHandles['errorKind']
   pushEvent: AcpPromptFinalizationHandles['pushEvent']
+  onArtifactFinalizationFailed?: (sessionId: string, turnToken: string) => Promise<void> | void
   onPromptEnded: (sessionId: string, turnToken: string) => void
   generationActivityChanged: () => void
   autoCompact: (
@@ -403,6 +404,8 @@ class AcpPromptTurnWorkflow {
         ...(model ? { model } : {}),
         emitUserMessage,
         emitArtifact: (onPublished) => artifacts.publish(sessionId, artifact, onPublished),
+        onArtifactFinalizationFailed: () =>
+          finalization.onArtifactFinalizationFailed?.(sessionId, turnToken),
         disposeArtifact: () => artifacts.dispose(artifact),
         failPendingSkillActivities: () => {
           if (!skillStarted || skillFinalized) return

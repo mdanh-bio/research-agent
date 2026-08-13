@@ -2750,6 +2750,7 @@ describe('session store public contract', () => {
         'appendRoutedUserMessage',
         'appendUserMessage',
         'applyDurableSessionProjection',
+        'applyMainOwnedUserMessage',
         'attachRunArtifacts',
         'beginActivityGroup',
         'beginCompaction',
@@ -2802,9 +2803,49 @@ describe('session store public contract', () => {
         'truncateSessionFromMessage',
         'updateSessionArchive',
         'upsertPersistedSession',
+        'upsertSideQuestion',
         'upsertToolActivity'
       ].sort()
     )
+  })
+
+  it('projects a main-owned user Message exactly once without authoring a renderer Message', () => {
+    useSessionStore.getState().hydrateSessions([
+      {
+        id: 'session-main-owned',
+        projectId: 'project-1',
+        title: 'Main-owned delivery',
+        cwd: '/workspace',
+        status: 'running',
+        messages: [],
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    const mainOwnedMessage: ChatMessage = {
+      id: 'message-main-owned',
+      role: 'user',
+      content: 'Steer the active task.',
+      status: 'complete',
+      eventIds: [],
+      parts: [{ type: 'text', text: 'Steer the active task.' }],
+      createdAt: 2,
+      updatedAt: 2
+    }
+
+    useSessionStore.getState().applyMainOwnedUserMessage({
+      sessionId: 'session-main-owned',
+      message: mainOwnedMessage
+    })
+    const afterFirstProjection = useSessionStore.getState()
+    useSessionStore.getState().applyMainOwnedUserMessage({
+      sessionId: 'session-main-owned',
+      message: mainOwnedMessage
+    })
+
+    expect(useSessionStore.getState().sessions[0].messages).toEqual([mainOwnedMessage])
+    expect(useSessionStore.getState().sessions[0].messages[0].id).toBe('message-main-owned')
+    expect(useSessionStore.getState().sessions).toBe(afterFirstProjection.sessions)
   })
 
   it('keeps production consumers on the public store facade', () => {

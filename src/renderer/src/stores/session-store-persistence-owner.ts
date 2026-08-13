@@ -110,6 +110,7 @@ export type SessionPersistenceActions = {
   ) => void
   upsertPersistedSession: (session: PersistedChatSession) => void
   applyDurableSessionProjection: (input: ApplyDurableSessionProjectionInput) => void
+  applyMainOwnedUserMessage: (input: { sessionId: string; message: PersistedChatMessage }) => void
 }
 
 const externallyHydratedSessions = new WeakSet<ChatSession>()
@@ -468,6 +469,25 @@ export const createSessionPersistenceOwner = <State extends SessionStoreData>(
       return {
         sessions: state.sessions.map((candidate) =>
           candidate.id === session.id ? projected : candidate
+        )
+      } as Partial<State>
+    })
+  },
+  applyMainOwnedUserMessage: ({ sessionId, message }) => {
+    set((state) => {
+      const session = state.sessions.find((candidate) => candidate.id === sessionId)
+      if (!session || session.messages.some((candidate) => candidate.id === message.id)) {
+        return state
+      }
+      const messages = [...session.messages, { ...message }]
+      const updated = materializeSessionConversationGraph({
+        ...session,
+        messages,
+        updatedAt: Math.max(session.updatedAt, message.updatedAt)
+      })
+      return {
+        sessions: state.sessions.map((candidate) =>
+          candidate.id === sessionId ? updated : candidate
         )
       } as Partial<State>
     })

@@ -1104,6 +1104,7 @@ describe('AcpRuntimeCoordinator', () => {
     const onSessionTurnStarted = vi.fn()
     const onSessionTurnEnded = vi.fn()
     const onSkillImportAttachmentEligible = vi.fn()
+    const onSessionReady = vi.fn()
     const coordinator = new AcpRuntimeCoordinator(
       (callbacks) =>
         createFakeRuntime({
@@ -1117,13 +1118,20 @@ describe('AcpRuntimeCoordinator', () => {
       undefined,
       undefined,
       undefined,
-      { onSessionTurnStarted, onSessionTurnEnded, onSkillImportAttachmentEligible }
+      {
+        onSessionTurnStarted,
+        onSessionTurnEnded,
+        onSkillImportAttachmentEligible,
+        onSessionReady
+      }
     )
 
     const session = await coordinator.createSession({ cwd: '/workspace' })
     await coordinator.sendPrompt({ sessionId: session.sessionId, text: 'import this Skill' })
 
     expect(onSessionTurnStarted).toHaveBeenCalledOnce()
+    expect(onSessionReady).toHaveBeenCalledOnce()
+    expect(onSessionReady).toHaveBeenCalledWith('session-1')
     expect(onSessionTurnStarted).toHaveBeenCalledWith('session-1', 'turn-1')
     expect(onSessionTurnEnded).toHaveBeenCalledOnce()
     expect(onSessionTurnEnded).toHaveBeenCalledWith('session-1', 'turn-1')

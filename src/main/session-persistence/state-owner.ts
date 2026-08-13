@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { resolveActiveConversationMessages } from '../../shared/conversation-graph'
+import {
+  cancelAgentFrame,
+  completeAgentFrame,
+  createChildAgentFrame,
+  failAgentFrame,
+  resolveActiveConversationMessages
+} from '../../shared/conversation-graph'
 import type { ProjectFilesChangedEvent, ProjectFileSource } from '../../shared/project-files'
 import {
   materializeSessionConversationGraph,
@@ -16,6 +22,12 @@ import {
   type SessionRuntimeContextPatch
 } from '../../shared/session-persistence'
 import type { PersistedUploadedAttachment } from '../../shared/uploads'
+import {
+  validatePersistedSideQuestion,
+  validateSideQuestionTransition,
+  type PersistedSideQuestion,
+  type SideQuestionLifecycle
+} from '../../shared/side-question'
 import { FinalizedArtifactBindingConflictError } from '../artifacts/provenance-message-snapshot'
 import { diagnosticErrorFields, type Logger } from '../logger'
 
@@ -44,6 +56,29 @@ type AppendUserMessageToInteractionCommand = Readonly<{
   parts?: MessagePart[]
   uploads?: PersistedUploadedAttachment[]
   beforePersist?: () => void
+}>
+
+type CreateSideQuestionCardCommand = Readonly<{
+  card: PersistedSideQuestion
+}>
+
+type TransitionSideQuestionCardCommand = Readonly<{
+  projectId: string
+  sessionId: string
+  sideQuestionId: string
+  lifecycle: SideQuestionLifecycle
+  update?: Readonly<{
+    answer?: string
+    answerTruncated?: boolean
+    safeFailureCode?: string
+    runtimeSessionId?: string
+    runtimeThreadId?: string
+    model?: string
+    modelProvider?: string
+    runtimeLinkClosed?: boolean
+    runtimeDisposed?: boolean
+    completedAt?: number
+  }>
 }>
 
 type SessionStateRepository = {
@@ -331,7 +366,6 @@ class SessionPersistenceStateOwner {
   ): Promise<PersistedChatMessage> {
     const { projectId, sessionId, interactionId } = command
     const content = command.content.trim()
-    if (!content) throw new Error('User Message content must be non-empty.')
     const messageId = command.messageId?.trim() || `message-${randomUUID()}`
     if (
       !messageId ||
@@ -344,6 +378,9 @@ class SessionPersistenceStateOwner {
     }
     const parts = validateMessageParts(command.parts)
     const uploads = validatePersistedUploadedAttachments(command.uploads)
+    if (!content && (uploads?.length ?? 0) === 0) {
+      throw new Error('User Message content or uploads must be non-empty.')
+    }
     this.options.assertMutable(projectId, sessionId, 'mutate')
     const session = await this.loadRuntimeContextSession(projectId, sessionId, 'patch')
     const materialized = materializeSessionConversationGraph(session)
@@ -389,6 +426,97 @@ class SessionPersistenceStateOwner {
     return message
   }
 
+  async createSideQuestionCard(
+    command: CreateSideQuestionCardCommand
+  ): Promise<PersistedSideQuestion> {
+    const card = validatePersistedSideQuestion(command.card)
+    this.options.assertMutable(card.projectId, card.sessionId, 'mutate')
+    const session = materializeSessionConversationGraph(
+      await this.loadRuntimeContextSession(card.projectId, card.sessionId, 'patch')
+    )
+    if (session.sideQuestions?.some((candidate) => candidate.id === card.id)) {
+      throw new Error(`Side Question already exists: ${card.id}`)
+    }
+    if (
+      session.sideQuestions?.some((candidate) => candidate.childAgentRunId === card.childAgentRunId)
+    ) {
+      throw new Error('Side Question child Agent Run is already bound to a card.')
+    }
+    if (!session.conversationGraph) throw new Error('Side Question Session graph is unavailable.')
+    const conversationGraph = createChildAgentFrame(session.conversationGraph, {
+      id: card.childFrameId,
+      parentFrameId: card.parentFrameId,
+      originMessageId: card.parentPromptMessageId,
+      kind: 'side-question',
+      createdAt: card.createdAt,
+      agentName: 'Side question'
+    })
+    const durable = {
+      ...session,
+      conversationGraph,
+      sideQuestions: [...(session.sideQuestions ?? []), card],
+      updatedAt: Math.max(session.updatedAt + 1, card.updatedAt, Date.now())
+    }
+    await this.options.repository.saveSession(durable)
+    this.recordSession(durable)
+    return structuredClone(card)
+  }
+
+  async getSideQuestionCard(
+    projectId: string,
+    sessionId: string,
+    sideQuestionId: string
+  ): Promise<PersistedSideQuestion | undefined> {
+    const session = await this.loadRuntimeContextSession(projectId, sessionId, 'read')
+    return structuredClone(
+      session.sideQuestions?.find((candidate) => candidate.id === sideQuestionId)
+    )
+  }
+
+  async listSideQuestionCards(
+    projectId: string,
+    sessionId: string
+  ): Promise<readonly PersistedSideQuestion[]> {
+    const session = await this.loadRuntimeContextSession(projectId, sessionId, 'read')
+    return structuredClone(session.sideQuestions ?? [])
+  }
+
+  async transitionSideQuestionCard(
+    command: TransitionSideQuestionCardCommand
+  ): Promise<PersistedSideQuestion> {
+    this.options.assertMutable(command.projectId, command.sessionId, 'mutate')
+    const session = materializeSessionConversationGraph(
+      await this.loadRuntimeContextSession(command.projectId, command.sessionId, 'patch')
+    )
+    const index =
+      session.sideQuestions?.findIndex((candidate) => candidate.id === command.sideQuestionId) ?? -1
+    if (index < 0) throw new Error(`Unknown Side Question: ${command.sideQuestionId}`)
+    const current = session.sideQuestions![index]
+    validateSideQuestionTransition(current.lifecycle, command.lifecycle)
+    const now = Math.max(current.updatedAt + 1, Date.now())
+    const next = validatePersistedSideQuestion({
+      ...current,
+      ...command.update,
+      lifecycle: command.lifecycle,
+      updatedAt: now
+    })
+    const sideQuestions = [...session.sideQuestions!]
+    sideQuestions[index] = next
+    let conversationGraph = session.conversationGraph
+    if (!conversationGraph) throw new Error('Side Question Session graph is unavailable.')
+    if (command.lifecycle === 'completed') {
+      conversationGraph = completeAgentFrame(conversationGraph, current.childFrameId, now)
+    } else if (command.lifecycle === 'cancelled') {
+      conversationGraph = cancelAgentFrame(conversationGraph, current.childFrameId, now)
+    } else if (command.lifecycle === 'failed' || command.lifecycle === 'blocked') {
+      conversationGraph = failAgentFrame(conversationGraph, current.childFrameId, now)
+    }
+    const durable = { ...session, conversationGraph, sideQuestions, updatedAt: now }
+    await this.options.repository.saveSession(durable)
+    this.recordSession(durable)
+    return structuredClone(next)
+  }
+
   async saveSession(
     session: PersistedChatSession,
     options: SaveSessionOptions = {}
@@ -406,6 +534,7 @@ class SessionPersistenceStateOwner {
     const rendererOwnedSession: PersistedChatSession = { ...session }
     delete rendererOwnedSession.runtimeContext
     delete rendererOwnedSession.archivedAt
+    delete rendererOwnedSession.sideQuestions
     const authority = authoritative.status === 'found' ? authoritative.session : undefined
     const mainOwnedStatus =
       authority?.status === 'waiting-plan-approval' ||
@@ -416,6 +545,7 @@ class SessionPersistenceStateOwner {
       ...rendererOwnedSession,
       ...(authority?.runtimeContext ? { runtimeContext: authority.runtimeContext } : {}),
       ...(authority?.archivedAt ? { archivedAt: authority.archivedAt } : {}),
+      ...(authority?.sideQuestions ? { sideQuestions: authority.sideQuestions } : {}),
       ...(mainOwnedStatus ? { status: mainOwnedStatus } : {}),
       updatedAt:
         authority?.runtimeContext || mainOwnedStatus
@@ -503,7 +633,9 @@ class SessionPersistenceStateOwner {
 export { SessionPersistenceStateOwner, SessionRuntimeContextRevisionConflictError }
 export type {
   AppendUserMessageToInteractionCommand,
+  CreateSideQuestionCardCommand,
   PatchSessionRuntimeContextCommand,
+  TransitionSideQuestionCardCommand,
   SessionMetadata,
   SessionMetadataSnapshot
 }

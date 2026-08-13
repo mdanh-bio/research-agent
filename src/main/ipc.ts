@@ -31,6 +31,20 @@ import type { ApplicationInvocation } from './application-command-router'
 import { createApplicationEventModule, type ApplicationEventSource } from './application-events'
 
 import { createAcpRuntime } from './acp/runtime-composition'
+import { DirectCodexDeliveryRegistry } from './agent-graph/direct-codex-delivery-registry'
+import { MessageDeliveryJournal } from './agent-graph/delivery-journal'
+import { MessageDeliveryOwner } from './agent-graph/message-delivery-owner'
+import { MessageDeliveryBackendRouter } from './agent-graph/message-delivery-router'
+import { OpenCodeQueuedDeliveryOwner } from './agent-graph/opencode-queued-delivery-owner'
+import { OpenCodeQueuedDeliveryRegistry } from './agent-graph/opencode-queued-delivery-registry'
+import { SideQuestionOwner } from './agent-graph/side-question-owner'
+import { SessionSideQuestionRepository } from './agent-graph/session-side-question-repository'
+import {
+  createCodexSideQuestionAdapter,
+  createOpenCodeSideQuestionAdapter
+} from './agent-graph/side-question-runtime-adapters'
+import { AgentGraphOwner } from './agent-graph/owner'
+import { isM2DevelopmentGateEnabled } from '../shared/m2-feature-gate'
 import { createAcpCreateSessionWorkflow } from './acp/create-session-workflow'
 import { createAcpHandlerWorkflows } from './acp/handler-workflows'
 import { createAcpTaskAgentPort } from './acp/task-agent-port'
@@ -516,6 +530,36 @@ const createApplicationModules = async (
         reconcilePermissionGrantOwners(permissionGrantRegistry, { sessions })
     }
   )
+  const messageDeliveryJournal = new MessageDeliveryJournal(() =>
+    getProjectDbClient(resolveStorageRoot())
+  )
+  const openCodeQueuedDeliveryOwnerRef: {
+    current: OpenCodeQueuedDeliveryOwner | undefined
+  } = { current: undefined }
+  const messageDeliveryRouterRef: { current: MessageDeliveryBackendRouter | undefined } = {
+    current: undefined
+  }
+  const sideQuestionOwnerRef: { current: SideQuestionOwner | undefined } = {
+    current: undefined
+  }
+  const notifyOpenCodeSessionPersistenceChanged = (sessionId: string): void => {
+    openCodeQueuedDeliveryOwnerRef.current?.onSessionPersistenceChanged(sessionId)
+  }
+  const deliverySessions = {
+    projectIdForSession: (sessionId: string) =>
+      sessionPersistenceCoordinator.sessionProjectId(sessionId),
+    loadSession: (projectId: string, sessionId: string) =>
+      sessionRepository.loadSession(projectId, sessionId),
+    assertSessionAvailable: (projectId: string, sessionId: string) =>
+      archiveCoordinator.withSessionAvailable(projectId, sessionId, async () => undefined),
+    appendUserMessageToInteraction: async (
+      command: Parameters<typeof sessionPersistenceCoordinator.appendUserMessageToInteraction>[0]
+    ) => {
+      const message = await sessionPersistenceCoordinator.appendUserMessageToInteraction(command)
+      notifyOpenCodeSessionPersistenceChanged(command.sessionId)
+      return message
+    }
+  }
   const uploadCommandOwner = createUploadCommandOwner(uploadRepository, {
     withSessionMutation: (projectId, sessionId, mutation) =>
       sessionPersistenceCoordinator.runSessionMutation(projectId, sessionId, mutation)
@@ -582,6 +626,7 @@ const createApplicationModules = async (
       const created =
         (await sessionRepository.loadSession(session.projectId, session.id)) === undefined
       const durableSession = await sessionPersistenceCoordinator.saveSession(session, options)
+      notifyOpenCodeSessionPersistenceChanged(durableSession.id)
       // Flush any approved host.agents.switch binding stashed while this session was not yet durable,
       // so the approved target survives a restart before the next message (the in-memory binding
       // alone does not persist across restart).
@@ -1192,16 +1237,35 @@ const createApplicationModules = async (
       notificationInbox,
       onSessionTurnStarted: (sessionId, turnToken) =>
         skillImportApprovalBroker.beginSessionTurn(sessionId, turnToken),
-      onSessionTurnEnded: (sessionId, turnToken) =>
-        skillImportApprovalBroker.endSessionTurn(sessionId, turnToken),
+      onSessionTurnEnded: (sessionId, turnToken) => {
+        skillImportApprovalBroker.endSessionTurn(sessionId, turnToken)
+        openCodeQueuedDeliveryOwnerRef.current?.onInteractionReleased(sessionId)
+      },
+      onSessionRunFinalized: (sessionId) =>
+        openCodeQueuedDeliveryOwnerRef.current?.onParentRunFinalized(sessionId),
+      onSessionArtifactFinalizationFailed: (sessionId) =>
+        openCodeQueuedDeliveryOwnerRef.current?.onArtifactFinalizationFailed(sessionId),
       onSkillImportAttachmentEligible: (sessionId, turnToken, attachmentUri) =>
         skillImportApprovalBroker.allowSessionTurnAttachment(sessionId, turnToken, attachmentUri),
-      onSessionCancellationRequested: (sessionId) =>
-        skillImportApprovalBroker.cancelSession(sessionId),
-      onSessionUnavailable: (sessionId) => skillImportApprovalBroker.cancelSession(sessionId),
+      onSessionCancellationRequested: (sessionId) => {
+        skillImportApprovalBroker.cancelSession(sessionId)
+        openCodeQueuedDeliveryOwnerRef.current?.onParentCancellationRequested(sessionId)
+        void sideQuestionOwnerRef.current?.cancelSession(sessionId)
+      },
+      onSessionReady: (sessionId) =>
+        openCodeQueuedDeliveryOwnerRef.current?.onSessionReady(sessionId),
+      onSessionUnavailable: (sessionId) => {
+        skillImportApprovalBroker.cancelSession(sessionId)
+        openCodeQueuedDeliveryOwnerRef.current?.onSessionUnavailable(sessionId)
+      },
       onAllSessionsCancellationRequested: () => skillImportApprovalBroker.cancelAll(),
-      beforeSessionDelete: (sessionId) =>
-        notebookService.shutdownSession(sessionId).then(() => undefined),
+      beforeSessionDelete: (sessionId) => {
+        openCodeQueuedDeliveryOwnerRef.current?.onSessionDeleted(sessionId)
+        return Promise.all([
+          sideQuestionOwnerRef.current?.cancelSession(sessionId),
+          notebookService.shutdownSession(sessionId)
+        ]).then(() => undefined)
+      },
       initializationBarrier: initialConnectorSkillsReady,
       profileService,
       sessionPersistenceCoordinator
@@ -1850,6 +1914,34 @@ const createApplicationModules = async (
       workflows: acpHandlerWorkflows,
       archiveAvailability: archiveCoordinator
     },
+    // The command remains default-off behind the internal M2 gate. When promoted, the backend router
+    // chooses between the separate main-owned Codex and OpenCode authorities; neither owner accepts
+    // renderer-supplied runtime identities.
+    messageDelivery: {
+      owner: {
+        deliver: (value) => {
+          const router = messageDeliveryRouterRef.current
+          if (!router) throw new Error('Message delivery router is not initialized.')
+          return router.deliver(value)
+        }
+      },
+      enabled: isM2DevelopmentGateEnabled()
+    },
+    sideQuestion: {
+      owner: {
+        list: (sessionId) => {
+          const owner = sideQuestionOwnerRef.current
+          if (!owner) throw new Error('Side-question owner is not initialized.')
+          return owner.list(sessionId)
+        },
+        cancel: (sessionId, sideQuestionId) => {
+          const owner = sideQuestionOwnerRef.current
+          if (!owner) throw new Error('Side-question owner is not initialized.')
+          return owner.cancel(sessionId, sideQuestionId)
+        }
+      },
+      enabled: isM2DevelopmentGateEnabled()
+    },
     notebook: {
       workflows: notebookCommands,
       readInputPreview: (request) => notebookInputRegistry.readPreview(request)
@@ -1942,6 +2034,206 @@ const createApplicationModules = async (
     dispose: async () => BackendShutdownOutcomeError.assertClean(await coordinator.runForQuit())
   }))
   backendTeardownOwnedByCoordinator = true
+  // Direct Codex delivery is a separate main-owned generation. It is deliberately composed beside
+  // ACP rather than borrowing ACP's ownership map or credentials. The provider callback is the only
+  // credential handoff and is evaluated lazily when a persisted direct Codex link needs a runtime.
+  const directCodexDeliveryRegistry = await modules.add(
+    {
+      getClient: () => getProjectDbClient(resolveStorageRoot()),
+      applicationVersion: app.getVersion(),
+      dataRoot: resolveDataRoot(),
+      provider: () => settingsService.resolveDirectCodexProviderHandoff()
+    },
+    (options) => {
+      const registry = new DirectCodexDeliveryRegistry(options)
+      return {
+        name: 'direct-codex-delivery-registry',
+        capability: registry,
+        dispose: () => registry.close()
+      }
+    }
+  )
+  const sideQuestionOwner = await modules.add(
+    {
+      graph: new AgentGraphOwner(() => getProjectDbClient(resolveStorageRoot())),
+      sessions: deliverySessions,
+      parentResolver: async (session) => {
+        if (session.agentFrameworkId === 'codex') {
+          return directCodexDeliveryRegistry.resolveSideQuestionParent(session)
+        }
+        if (session.agentFrameworkId !== 'opencode') return undefined
+        const promptMessageId =
+          session.activeRun?.promptMessageId ??
+          [...session.messages].reverse().find((message) => message.role === 'user')?.id
+        if (!promptMessageId) return undefined
+        const client = await getProjectDbClient(resolveStorageRoot())
+        const run = await client.agentRun.findFirst({
+          where: {
+            projectId: session.projectId,
+            sessionId: session.id,
+            parentAgentRunId: null,
+            runKind: 'root',
+            promptMessageId,
+            status: { in: ['running', 'completed'] }
+          },
+          orderBy: { createdAt: 'desc' }
+        })
+        if (!run?.graphId || !run.frameId) return undefined
+        const graph = await client.agentGraph.findUnique({ where: { id: run.graphId } })
+        if (!graph || !['active', 'completed'].includes(graph.lifecycle)) return undefined
+        const live = runtime.getActiveDeliveryTurn(session.id, promptMessageId)
+        return {
+          projectId: session.projectId,
+          sessionId: session.id,
+          graphId: graph.id,
+          agentRunId: run.id,
+          frameId: run.frameId,
+          promptMessageId,
+          backend: 'opencode' as const,
+          runtimeSessionId: session.id,
+          runtimeThreadId: live?.runtimeThreadId ?? session.providerSessionId,
+          activeTurnId: live?.turnId,
+          model: session.agentModel,
+          cwd: session.cwd,
+          cancellationGeneration: graph.cancellationGeneration
+        }
+      },
+      adapters: {
+        codex: createCodexSideQuestionAdapter((sessionId) =>
+          directCodexDeliveryRegistry.runtimeForSideQuestionParent(sessionId)
+        ),
+        opencode: createOpenCodeSideQuestionAdapter(runtime)
+      },
+      repository: new SessionSideQuestionRepository(sessionPersistenceCoordinator),
+      requestApproval: ({ record, approvalDigest, timeoutMs, outputTokenLimit }) =>
+        runtime.requestDetachedAppApproval({
+          sessionId: record.sessionId,
+          title: 'Run read-only side question',
+          rawInput: {
+            sideQuestionId: record.id,
+            childAgentRunId: record.childAgentRunId,
+            backend: record.backend,
+            model: record.model ?? null,
+            modelProvider: record.modelProvider ?? null,
+            sandbox: 'read-only',
+            timeoutMs,
+            outputTokenLimit,
+            approvalDigest
+          }
+        }),
+      cancelApproval: (sessionId) => runtime.cancelDetachedAppApprovals(sessionId),
+      cleanupRecovery: (record) =>
+        record.backend === 'codex' && record.runtimeSessionId
+          ? directCodexDeliveryRegistry.cleanupSideQuestionRuntime(
+              record.sessionId,
+              record.runtimeSessionId
+            )
+          : Promise.resolve(),
+      onChanged: (record) => applicationEvents.publish('side-question:updated', record)
+    },
+    (options) => {
+      const owner = new SideQuestionOwner(options)
+      sideQuestionOwnerRef.current = owner
+      if (isM2DevelopmentGateEnabled()) {
+        void sessionRepository
+          .loadAll()
+          .then(({ sessions }) => owner.recover(sessions))
+          .catch((error) =>
+            createLogger('side-question').error(
+              'Side-question recovery failed',
+              errorLogFields(error)
+            )
+          )
+      }
+      return {
+        name: 'side-question-owner',
+        capability: owner,
+        dispose: async () => {
+          if (sideQuestionOwnerRef.current === owner) sideQuestionOwnerRef.current = undefined
+          await owner.close()
+        }
+      }
+    }
+  )
+  const codexDeliveryOwner = new MessageDeliveryOwner({
+    sessions: deliverySessions,
+    deliveries: messageDeliveryJournal,
+    uploads: {
+      finalizeSessionUploads: ({ projectId, sessionId, attachments }) =>
+        uploadRepository.finalizePendingSessionUploads(sessionId, [...attachments], projectId)
+    },
+    resolveActiveTurn: (session) => directCodexDeliveryRegistry.resolveActiveTurn(session),
+    runtimeForSnapshot: (snapshot) => directCodexDeliveryRegistry.runtimeForSnapshot(snapshot)
+  })
+  const openCodeQueuedDeliveryRegistry = new OpenCodeQueuedDeliveryRegistry({
+    getClient: () => getProjectDbClient(resolveStorageRoot()),
+    runtime: {
+      getSessionFramework: (sessionId) => runtime.getSessionFramework(sessionId),
+      hasLiveSession: (projectId, sessionId) => runtime.hasLiveSession(projectId, sessionId),
+      getActiveDeliveryTurn: (sessionId, promptMessageId) =>
+        runtime.getActiveDeliveryTurn(sessionId, promptMessageId)
+    }
+  })
+  const openCodeQueuedDeliveryOwner = await modules.add(
+    {
+      sessions: deliverySessions,
+      deliveries: messageDeliveryJournal,
+      resolveActiveTurn: (session) => openCodeQueuedDeliveryRegistry.resolveActiveTurn(session),
+      resolveParentDeliveryState: (input) =>
+        openCodeQueuedDeliveryRegistry.resolveParentDeliveryState(input),
+      runtime: {
+        isSessionReady: (projectId, sessionId) => runtime.hasLiveSession(projectId, sessionId),
+        sendAppContinuationObserved: (request, onProviderPromptAccepted) =>
+          runtime.sendAppContinuationObserved(request, onProviderPromptAccepted),
+        cancelPrompt: (sessionId) => runtime.cancelPrompt({ sessionId }),
+        waitForSessionInteractionRelease: (sessionId) =>
+          runtime.waitForSessionInteractionRelease(sessionId)
+      },
+      uploads: {
+        finalizeSessionUploads: ({ projectId, sessionId, attachments }) =>
+          uploadRepository.finalizePendingSessionUploads(sessionId, [...attachments], projectId)
+      }
+    },
+    (options) => {
+      const owner = new OpenCodeQueuedDeliveryOwner(options)
+      openCodeQueuedDeliveryOwnerRef.current = owner
+      if (isM2DevelopmentGateEnabled()) {
+        void owner
+          .recover()
+          .catch((error) =>
+            createLogger('message-delivery').error(
+              'OpenCode delivery recovery failed',
+              errorLogFields(error)
+            )
+          )
+      }
+      return {
+        name: 'opencode-queued-delivery-owner',
+        capability: owner,
+        dispose: () => {
+          if (openCodeQueuedDeliveryOwnerRef.current === owner) {
+            openCodeQueuedDeliveryOwnerRef.current = undefined
+          }
+          return owner.closeAndWait()
+        }
+      }
+    }
+  )
+  messageDeliveryRouterRef.current = new MessageDeliveryBackendRouter({
+    sessions: deliverySessions,
+    resolveBackend: (session) => {
+      const liveFramework = runtime.getSessionFramework(session.id)
+      if (liveFramework === 'opencode' || liveFramework === 'codex') return liveFramework
+      if (liveFramework !== undefined) return undefined
+      if (session.agentFrameworkId === 'opencode' || session.agentFrameworkId === 'codex') {
+        return session.agentFrameworkId
+      }
+      return undefined
+    },
+    openCode: openCodeQueuedDeliveryOwner,
+    codex: codexDeliveryOwner,
+    sideQuestion: sideQuestionOwner
+  })
   const applicationCommandComposition = await modules.add(
     applicationCommandDependencies,
     (dependencies) => {
