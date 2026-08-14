@@ -225,6 +225,15 @@ Exact origins and license status are in `third_party/sources.lock.yaml`.
   side-question journey, artifact-writing child, delegation scheduler, remote compute action, commit,
   or push was performed. Stages 6-10 remain incomplete and the M2 gate remains default-off and
   user-invisible.
+- Stage 6 deterministic control-plane foundations are locally implemented behind the same
+  default-off gate: closed parent-scoped delegation capability, Session-owned task/result content,
+  additive secret-free SQLite delegation journal, depth-one/eight-child admission, four-node queued
+  slot claims, main-issued exact approval receipt validation and single-use CAS consumption, per-graph
+  FIFO/fairness scheduling, bounded result envelopes, and restart fail-closed reconciliation. Live
+  Codex/OpenCode delegate adapters, loopback MCP, pinned 0.147.0 tool-isolation characterization,
+  packaged-app journey, and provider certification remain deferred. Pinned Node `v22.23.2`/npm
+  `10.9.8` deterministic acceptance passed 183 focused tests, Prisma generation, node/web typechecks,
+  Web API-map validation, formatting, and `git diff --check`; this is local acceptance only.
 - Interactive SSH is an interface, not a PTY implementation. Background SSH still uses batch mode.
   The scheduler drivers do not yet own production dispatch/polling, restart reattachment, staging, or
   checksum collection. No SSH login or Slurm command has been run.

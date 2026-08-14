@@ -167,6 +167,49 @@ const AGENT_RUN_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "AgentRun" (
     CONSTRAINT "AgentRun_policySnapshotId_fkey" FOREIGN KEY ("policySnapshotId") REFERENCES "RoutingPolicySnapshot" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );`
 
+const DELEGATION_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "Delegation" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "graphId" TEXT NOT NULL,
+    "parentAgentRunId" TEXT NOT NULL,
+    "childAgentRunId" TEXT NOT NULL,
+    "childFrameId" TEXT NOT NULL,
+    "parentFrameId" TEXT NOT NULL,
+    "originMessageId" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "taskDigest" TEXT NOT NULL,
+    "role" TEXT NOT NULL,
+    "workClass" TEXT NOT NULL,
+    "resultShape" TEXT NOT NULL DEFAULT 'text',
+    "budgetJson" TEXT,
+    "lifecycle" TEXT NOT NULL DEFAULT 'awaiting_approval',
+    "sequence" INTEGER NOT NULL,
+    "approvalId" TEXT,
+    "approvalDigest" TEXT,
+    "approvalConsumedAt" DATETIME,
+    "targetJson" TEXT,
+    "cancellationGeneration" INTEGER NOT NULL DEFAULT 0,
+    "safeFailureCode" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "finishedAt" DATETIME,
+    "revision" INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT "Delegation_graphId_fkey" FOREIGN KEY ("graphId") REFERENCES "AgentGraph" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Delegation_parentAgentRunId_fkey" FOREIGN KEY ("parentAgentRunId") REFERENCES "AgentRun" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Delegation_childAgentRunId_fkey" FOREIGN KEY ("childAgentRunId") REFERENCES "AgentRun" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Delegation_resultShape_check" CHECK ("resultShape" IN ('text', 'json')),
+    CONSTRAINT "Delegation_lifecycle_check" CHECK ("lifecycle" IN ('awaiting_approval', 'queued', 'dispatching', 'running', 'completed', 'failed', 'cancelled', 'blocked')),
+    CONSTRAINT "Delegation_revision_check" CHECK ("revision" >= 1)
+);`
+const DELEGATION_INDEX_DDLS = [
+  `CREATE UNIQUE INDEX IF NOT EXISTS "Delegation_childAgentRunId_key" ON "Delegation"("childAgentRunId")`,
+  `CREATE INDEX IF NOT EXISTS "Delegation_graphId_lifecycle_sequence_idx" ON "Delegation"("graphId", "lifecycle", "sequence")`,
+  `CREATE INDEX IF NOT EXISTS "Delegation_projectId_sessionId_parentAgentRunId_createdAt_idx" ON "Delegation"("projectId", "sessionId", "parentAgentRunId", "createdAt")`
+]
+const DELEGATION_ADD_APPROVAL_CONSUMED_AT_DDL = `ALTER TABLE "Delegation" ADD COLUMN "approvalConsumedAt" DATETIME`
+const DELEGATION_ADD_PARENT_FRAME_ID_DDL = `ALTER TABLE "Delegation" ADD COLUMN "parentFrameId" TEXT NOT NULL DEFAULT ''`
+const DELEGATION_ADD_ORIGIN_MESSAGE_ID_DDL = `ALTER TABLE "Delegation" ADD COLUMN "originMessageId" TEXT NOT NULL DEFAULT ''`
+
 const MESSAGE_DELIVERY_TABLE_DDL = `CREATE TABLE IF NOT EXISTS "MessageDelivery" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "projectId" TEXT NOT NULL,
@@ -850,6 +893,26 @@ const ensureProjectSchema = async (client: PrismaClient): Promise<void> => {
   await addColumnIfMissing(client, 'AgentRun', 'failureCode', AGENT_RUN_ADD_FAILURE_CODE_DDL)
   await addColumnIfMissing(client, 'AgentRun', 'updatedAt', AGENT_RUN_ADD_UPDATED_AT_DDL)
   await addColumnIfMissing(client, 'AgentRun', 'revision', AGENT_RUN_ADD_REVISION_DDL)
+  await client.$executeRawUnsafe(DELEGATION_TABLE_DDL)
+  await addColumnIfMissing(
+    client,
+    'Delegation',
+    'parentFrameId',
+    DELEGATION_ADD_PARENT_FRAME_ID_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'Delegation',
+    'originMessageId',
+    DELEGATION_ADD_ORIGIN_MESSAGE_ID_DDL
+  )
+  await addColumnIfMissing(
+    client,
+    'Delegation',
+    'approvalConsumedAt',
+    DELEGATION_ADD_APPROVAL_CONSUMED_AT_DDL
+  )
+  for (const ddl of DELEGATION_INDEX_DDLS) await client.$executeRawUnsafe(ddl)
   await client.$executeRawUnsafe(MODEL_ATTEMPT_TABLE_DDL)
   await addColumnIfMissing(
     client,

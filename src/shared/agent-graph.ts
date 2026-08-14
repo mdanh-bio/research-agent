@@ -100,6 +100,7 @@ export type AgentRunProjection = Readonly<{
   graphId?: string
   parentAgentRunId?: string
   frameId?: string
+  policySnapshotId?: string
   runKind: AgentRunKind
   depth: number
   projectId: string

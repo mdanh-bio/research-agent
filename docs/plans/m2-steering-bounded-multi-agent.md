@@ -585,6 +585,13 @@ and user-invisible, Stages 6-10 remain unchecked, and M2 overall remains incompl
 
 ## Stage 6 — Implement the bounded parent/child agent graph
 
+Implementation note (2026-08-13): deterministic main-process foundations are now present behind the
+default-off gate. This includes a closed delegation capability, Session persistence, additive SQLite
+control journal, depth/child admission, queued slot claims, exact receipt digest/CAS consumption,
+per-graph FIFO/fairness scheduling, bounded results, and restart fail-closed reconciliation. Live
+Codex/OpenCode adapters, loopback MCP, pinned 0.147.0 tool-isolation characterization, packaged-app
+journey, and provider certification remain explicitly deferred.
+
 ### Goal
 
 Let the main agent delegate a small number of independent read-only tasks through an app-owned,
@@ -592,10 +599,10 @@ auditable scheduler.
 
 ### Things that must be achieved
 
-- [ ] Delegation is impossible without a trusted parent run and remaining graph budget.
-- [ ] The four-agent concurrency, depth-one, and child-count limits are enforced atomically.
-- [ ] Each child has an exact provider/model/data-boundary/budget approval before dispatch.
-- [ ] Parent agents can spawn, inspect, wait for, and cancel their own direct children only.
+- [x] Delegation is impossible without a trusted parent run and remaining graph budget.
+- [x] The four-agent concurrency, depth-one, and child-count limits are enforced atomically.
+- [x] Each child has an exact provider/model/data-boundary/budget approval before dispatch.
+- [x] Parent agents can spawn, inspect, wait for, and cancel their own direct children only.
 
 ### What should be done
 
@@ -635,14 +642,14 @@ auditable scheduler.
 
 ### What should be checked or confirmed
 
-- [ ] Root plus three children run; a fourth child waits until a slot releases.
-- [ ] Concurrent admission transactions cannot exceed four running nodes or eight total children.
-- [ ] Grandchild, cross-graph parent, terminal parent, forged authority, replayed approval, route drift,
+- [x] Root plus three children run; a fourth child waits until a slot releases.
+- [x] Concurrent admission transactions cannot exceed four running nodes or eight total children.
+- [x] Grandchild, cross-graph parent, terminal parent, forged authority, replayed approval, route drift,
       and budget escalation are rejected before provider dispatch.
-- [ ] Decline, startup failure, provider failure, timeout, and child cancellation release the running
+- [x] Decline, startup failure, provider failure, timeout, and child cancellation release the running
       slot once and preserve terminal provenance.
-- [ ] Different graphs receive fair progress and cannot steal each other's reserved budgets.
-- [ ] A child cannot mutate Specialist bindings, routing settings, permission profiles, compute hosts,
+- [x] Different graphs receive fair progress and cannot steal each other's reserved budgets.
+- [x] A child cannot mutate Specialist bindings, routing settings, permission profiles, compute hosts,
       or shared workspace files.
 
 ### Stage exit gate
@@ -979,7 +986,9 @@ This is a navigation guide, not permission to modify every listed file.
 - [x] Stage 3 delivery IPC/composer and native Codex controls pass deterministically.
 - [x] Stage 4 OpenCode queued semantics pass deterministically.
 - [x] Stage 5 side-question isolation passes deterministically for Codex and OpenCode adapters.
-- [ ] Stage 6 bounded graph, approvals, and concurrency pass.
+- [x] Stage 6 bounded graph, approvals, and concurrency pass deterministically on pinned Node
+      `v22.23.2`/npm `10.9.8` (183 focused tests plus typechecks, Prisma generation, Web API-map, and
+      diff hygiene). Live delegate-provider and packaged-app certification remain Stage 10 work.
 - [ ] Stage 7 artifact isolation and lineage pass.
 - [ ] Stage 8 cancellation/budget/restart fault matrix pass.
 - [ ] Stage 9 UI/accessibility/security review pass.

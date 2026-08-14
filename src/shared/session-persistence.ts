@@ -18,6 +18,7 @@ import {
 } from './permission-profiles'
 import type { AgentFrameworkId } from './settings'
 import { validatePersistedSideQuestion, type PersistedSideQuestion } from './side-question'
+import { validatePersistedDelegation, type PersistedDelegation } from './agent-delegation'
 import { sanitizeActivityGroupTitle } from './activity-groups'
 import { sanitizeElicitationProjection, type ElicitationProjection } from './elicitation'
 import {
@@ -273,6 +274,8 @@ export type PersistedChatSession = {
   // Main-owned side-question cards. Renderer whole-session saves must preserve the authoritative
   // collection; only dedicated main-process mutations may create or transition these records.
   sideQuestions?: PersistedSideQuestion[]
+  // Main-owned delegate results. Renderer whole-session saves must preserve this collection.
+  delegations?: PersistedDelegation[]
   activities?: PersistedToolActivity[]
   activityGroups?: PersistedActivityGroup[]
   activeRun?: PersistedActiveRun
@@ -1677,6 +1680,16 @@ const sanitizeSession = (
       }
     })
     if (sideQuestions.length > 0) sanitized.sideQuestions = sideQuestions
+  }
+  if (Array.isArray(session.delegations)) {
+    const delegations = session.delegations.flatMap((candidate) => {
+      try {
+        return [validatePersistedDelegation(candidate)]
+      } catch {
+        return []
+      }
+    })
+    if (delegations.length > 0) sanitized.delegations = delegations
   }
   if (sanitized.status === 'waiting-plan-approval' && runtimeContext?.plan === undefined) {
     // Approval waiting is meaningful only with restorable main-owned Plan authority. A corrupt or

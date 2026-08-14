@@ -107,6 +107,32 @@ const assertSafeFailureCode = (value: string | undefined): string | undefined =>
   return value
 }
 
+const assertBudgetCapacity = (
+  requested: AgentRunBudget | undefined,
+  limit: AgentRunBudget | undefined,
+  reserved: AgentRunBudget,
+  label: string
+): void => {
+  if (!requested || !limit) return
+  for (const key of [
+    'maxWallTimeMs',
+    'maxInputTokens',
+    'maxOutputTokens',
+    'maxCostUsd',
+    'maxArtifactBytes'
+  ] as const) {
+    const request = requested[key]
+    const maximum = limit[key]
+    if (
+      request !== undefined &&
+      maximum !== undefined &&
+      request + (reserved[key] ?? 0) > maximum
+    ) {
+      throw new Error(`Child Agent Run budget exceeds the ${label} ${key}.`)
+    }
+  }
+}
+
 const parseJsonObject = <Value>(
   value: string | null | undefined,
   label: string
@@ -281,6 +307,7 @@ const runProjection = (row: {
   graphId: string | null
   parentAgentRunId: string | null
   frameId: string | null
+  policySnapshotId: string
   runKind: string
   depth: number
   projectId: string
@@ -324,6 +351,7 @@ const runProjection = (row: {
     ...(row.graphId ? { graphId: row.graphId } : {}),
     ...(row.parentAgentRunId ? { parentAgentRunId: row.parentAgentRunId } : {}),
     ...(row.frameId ? { frameId: row.frameId } : {}),
+    policySnapshotId: row.policySnapshotId,
     runKind: row.runKind as AgentRunKind,
     depth: row.depth,
     projectId: row.projectId,
@@ -607,12 +635,35 @@ class AgentGraphOwner {
       if (childCount >= limits.maxChildren) {
         throw new Error('Agent Graph child-count limit has been reached.')
       }
-      const activeCount = await transaction.agentRun.count({
-        where: { graphId, status: 'running' }
-      })
-      if (activeCount >= limits.maxConcurrency) {
-        throw new Error('Agent Graph concurrency limit has been reached.')
-      }
+      const reserved = (
+        await transaction.agentRun.findMany({
+          where: { graphId, parentAgentRunId: { not: null }, runKind: { not: 'root' } },
+          select: { budgetJson: true }
+        })
+      ).reduce<AgentRunBudget>((total, row) => {
+        const item = row.budgetJson
+          ? validateAgentRunBudget(parseJsonObject<AgentRunBudget>(row.budgetJson, 'Child budget'))
+          : undefined
+        return {
+          maxWallTimeMs: (total.maxWallTimeMs ?? 0) + (item?.maxWallTimeMs ?? 0),
+          maxInputTokens: (total.maxInputTokens ?? 0) + (item?.maxInputTokens ?? 0),
+          maxOutputTokens: (total.maxOutputTokens ?? 0) + (item?.maxOutputTokens ?? 0),
+          maxCostUsd: (total.maxCostUsd ?? 0) + (item?.maxCostUsd ?? 0),
+          maxArtifactBytes: (total.maxArtifactBytes ?? 0) + (item?.maxArtifactBytes ?? 0)
+        }
+      }, {})
+      const parentBudget = parent.budgetJson
+        ? validateAgentRunBudget(
+            parseJsonObject<AgentRunBudget>(parent.budgetJson, 'Parent Agent Run budget')
+          )
+        : undefined
+      const graphBudget = graph.totalBudgetJson
+        ? validateAgentRunBudget(
+            parseJsonObject<AgentRunBudget>(graph.totalBudgetJson, 'Agent Graph budget')
+          )
+        : undefined
+      assertBudgetCapacity(budget, parentBudget, reserved, 'parent remainder')
+      assertBudgetCapacity(budget, graphBudget, reserved, 'graph remainder')
       if (idleSideQuestionAdmission && graph.lifecycle === 'completed') {
         // Re-open only the graph admission window. The completed root run, its frame, prompt, and
         // cancellation generation remain unchanged; the graph closes again when this child settles.
@@ -712,6 +763,44 @@ class AgentGraphOwner {
         if (raced?.status === 'running') return runProjection(raced)
         throw new Error(`Agent Run ${runId} changed before start.`)
       }
+      return runProjection(await transaction.agentRun.findUniqueOrThrow({ where: { id: runId } }))
+    })
+  }
+
+  // Claims a queued child slot atomically. Admission is deliberately separate from execution: the
+  // fourth admitted child may wait in FIFO order until one of the four running-node slots releases.
+  async claimQueuedChild(
+    runId: string,
+    expectedRevision?: number
+  ): Promise<AgentRunProjection | undefined> {
+    const client = await this.getClient()
+    const now = this.now()
+    return client.$transaction(async (transaction) => {
+      const run = await transaction.agentRun.findUnique({ where: { id: runId } })
+      if (!run || !run.graphId) return undefined
+      if (run.status === 'running') return runProjection(run)
+      if (run.status !== 'queued') return undefined
+      if (expectedRevision !== undefined && run.revision !== expectedRevision) return undefined
+      const graph = await transaction.agentGraph.findUnique({ where: { id: run.graphId } })
+      if (!graph || graph.lifecycle !== 'active') return undefined
+      const limits = validateAgentGraphLimits({
+        maxConcurrency: graph.maxConcurrency,
+        maxDepth: graph.maxDepth,
+        maxChildren: graph.maxChildren
+      })
+      const activeCount = await transaction.agentRun.count({
+        where: { graphId: run.graphId, status: 'running' }
+      })
+      if (activeCount >= limits.maxConcurrency) return undefined
+      const changed = await transaction.agentRun.updateMany({
+        where: { id: runId, status: 'queued', revision: expectedRevision ?? run.revision },
+        data: { status: 'running', startedAt: now, updatedAt: now, revision: { increment: 1 } }
+      })
+      if (changed.count !== 1) return undefined
+      await transaction.agentGraph.updateMany({
+        where: { id: run.graphId, revision: graph.revision, lifecycle: 'active' },
+        data: { revision: { increment: 1 }, updatedAt: now }
+      })
       return runProjection(await transaction.agentRun.findUniqueOrThrow({ where: { id: runId } }))
     })
   }

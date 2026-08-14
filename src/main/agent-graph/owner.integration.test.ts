@@ -204,6 +204,94 @@ describe('AgentGraphOwner', () => {
     ).rejects.toThrow(/inactive|cancelling/i)
   })
 
+  it('admits a fourth child into the durable queue and claims it after a slot releases', async () => {
+    const owner = await setup()
+    const root = await owner.createConfiguredDirectRoot(rootInput)
+    const children = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        owner.createChild({
+          graphId: root.graphId,
+          parentAgentRunId: root.agentRunId,
+          projectId: rootInput.projectId,
+          sessionId: rootInput.sessionId,
+          runKind: 'delegate',
+          role: 'delegate',
+          workClass: 'analysis',
+          runtime: target.backend,
+          promptMessageId: `child-${index}`
+        })
+      )
+    )
+    expect(children.every((child) => child.status === 'queued')).toBe(true)
+    await expect(owner.claimQueuedChild(children[0].id)).resolves.toMatchObject({
+      status: 'running'
+    })
+    await expect(owner.claimQueuedChild(children[1].id)).resolves.toMatchObject({
+      status: 'running'
+    })
+    await expect(owner.claimQueuedChild(children[2].id)).resolves.toMatchObject({
+      status: 'running'
+    })
+    await expect(owner.claimQueuedChild(children[3].id)).resolves.toBeUndefined()
+    await owner.finishRun(children[0].id, 'completed')
+    await expect(owner.claimQueuedChild(children[3].id)).resolves.toMatchObject({
+      status: 'running'
+    })
+  })
+
+  it('serializes simultaneous slot claims without exceeding the four-node limit', async () => {
+    const owner = await setup()
+    const root = await owner.createConfiguredDirectRoot(rootInput)
+    const children = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        owner.createChild({
+          graphId: root.graphId,
+          parentAgentRunId: root.agentRunId,
+          projectId: rootInput.projectId,
+          sessionId: rootInput.sessionId,
+          runKind: 'delegate',
+          role: 'delegate',
+          workClass: 'analysis',
+          runtime: target.backend,
+          promptMessageId: `simultaneous-child-${index}`
+        })
+      )
+    )
+    const claims = await Promise.all(children.map((child) => owner.claimQueuedChild(child.id)))
+    expect(claims.filter(Boolean)).toHaveLength(3)
+    const runs = await owner.listRunProjections(root.graphId)
+    expect(runs.filter((run) => run.status === 'running')).toHaveLength(4)
+    expect(runs.filter((run) => run.status === 'queued')).toHaveLength(5)
+  })
+
+  it('reserves cumulative child budgets atomically against the parent and graph limits', async () => {
+    const owner = await setup()
+    const root = await owner.createConfiguredDirectRoot({
+      ...rootInput,
+      promptMessageId: 'budgeted-root',
+      budget: { maxOutputTokens: 100 }
+    })
+    const request = (index: number): ReturnType<AgentGraphOwner['createChild']> =>
+      owner.createChild({
+        graphId: root.graphId,
+        parentAgentRunId: root.agentRunId,
+        projectId: rootInput.projectId,
+        sessionId: rootInput.sessionId,
+        runKind: 'delegate',
+        role: 'delegate',
+        workClass: 'analysis',
+        runtime: target.backend,
+        promptMessageId: `budget-child-${index}`,
+        budget: { maxOutputTokens: 60 }
+      })
+    const results = await Promise.allSettled([request(1), request(2)])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: expect.objectContaining({ message: expect.stringMatching(/parent remainder/) })
+    })
+  })
+
   it('persists cancellation generation and reason without exposing provider data', async () => {
     const owner = await setup()
     const root = await owner.createConfiguredDirectRoot(rootInput)

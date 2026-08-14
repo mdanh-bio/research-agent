@@ -1,6 +1,7 @@
 # ADR 0006: Persist a bounded root-plus-child graph in main-process authority
 
-- Status: Accepted through M2 Stage 5 side-question dispatch; delegation scheduling pending
+- Status: Implemented deterministic M2 Stage 6 control-plane foundation; live/runtime adapters and
+  packaged-app acceptance remain pending
 - Date: 2026-08-11
 
 ## Context
@@ -31,6 +32,14 @@ Cross-store prompt durability is ordered as: prepare a delivery row, append the 
 authoritative Session JSON, then promote the delivery. Recovery abandons a journal row that has no
 Session Message, promotes a durable Session Message left in `preparing`, and blocks any dispatch-
 ambiguous row. No renderer projection can overwrite graph or delivery authority.
+
+Stage 6 adds an additive Session-owned delegation record and a secret-free SQLite control journal.
+Approval is represented by a main-issued human receipt bound to the exact task digest, identities,
+target, budget, and cancellation generation; the scheduler consumes it once by CAS immediately before
+claiming a graph slot. Admission is separate from execution, with FIFO ordering per graph and one
+child per graph per fairness pass. Restart reconciliation blocks awaiting-approval and
+dispatch-ambiguous children and never replays a provider call. Task and result bodies remain in
+Session JSON; the journal retains only digests and control metadata.
 
 ## Consequences
 

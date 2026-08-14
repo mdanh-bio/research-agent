@@ -399,6 +399,38 @@ class SessionPersistenceCoordinator {
     return this.enqueue(() => this.stateOwner.transitionSideQuestionCard(command))
   }
 
+  createDelegation(
+    card: import('../../shared/agent-delegation').PersistedDelegation
+  ): Promise<import('../../shared/agent-delegation').PersistedDelegation> {
+    return this.enqueue(() => this.stateOwner.createDelegation(card))
+  }
+
+  getDelegation(
+    projectId: string,
+    sessionId: string,
+    delegationId: string
+  ): Promise<import('../../shared/agent-delegation').PersistedDelegation | undefined> {
+    return this.enqueue(() => this.stateOwner.getDelegation(projectId, sessionId, delegationId))
+  }
+
+  listDelegations(
+    projectId: string,
+    sessionId: string
+  ): Promise<readonly import('../../shared/agent-delegation').PersistedDelegation[]> {
+    return this.enqueue(() => this.stateOwner.listDelegations(projectId, sessionId))
+  }
+
+  updateDelegation(
+    projectId: string,
+    sessionId: string,
+    delegationId: string,
+    update: Partial<import('../../shared/agent-delegation').PersistedDelegation>
+  ): Promise<import('../../shared/agent-delegation').PersistedDelegation> {
+    return this.enqueue(() =>
+      this.stateOwner.updateDelegation(projectId, sessionId, delegationId, update)
+    )
+  }
+
   // Project archive must fail closed when even one child Session cannot be read. A partial catalog
   // cannot prove that an omitted Session is idle, so it is unsafe to hide the whole Project.
   assertProjectArchivable(

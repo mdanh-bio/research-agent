@@ -558,6 +558,42 @@ model AgentRun {
   @@index([graphId, status])
 }
 
+// Secret-free durable control metadata for one bounded direct child delegation. Task/result text is
+// retained in authoritative Session JSON; this table stores only lifecycle, identity, route, budget,
+// approval, and recovery fields.
+model Delegation {
+  id                     String    @id
+  graphId                String
+  parentAgentRunId       String
+  childAgentRunId        String    @unique
+  childFrameId           String
+  parentFrameId          String
+  originMessageId        String
+  projectId              String
+  sessionId              String
+  taskDigest             String
+  role                   String
+  workClass              String
+  resultShape            String
+  budgetJson             String?
+  lifecycle              String    @default("awaiting_approval")
+  sequence               Int
+  approvalId             String?
+  approvalDigest         String?
+  approvalConsumedAt     DateTime?
+  targetJson             String?
+  cancellationGeneration Int
+  safeFailureCode        String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  finishedAt             DateTime?
+  revision               Int       @default(1)
+
+  @@index([graphId, lifecycle, sequence])
+  @@index([projectId, sessionId, parentAgentRunId, createdAt])
+  @@index([childAgentRunId])
+}
+
 // One exact provider/model attempt. Only a request digest is stored; prompts and attachments stay in
 // Session-managed storage. sequence preserves fallback order and is unique within an AgentRun.
 model ModelAttempt {

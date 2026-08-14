@@ -22,6 +22,7 @@ import {
   type SessionRuntimeContextPatch
 } from '../../shared/session-persistence'
 import type { PersistedUploadedAttachment } from '../../shared/uploads'
+import type { PersistedDelegation } from '../../shared/agent-delegation'
 import {
   validatePersistedSideQuestion,
   validateSideQuestionTransition,
@@ -462,6 +463,78 @@ class SessionPersistenceStateOwner {
     return structuredClone(card)
   }
 
+  async createDelegation(card: PersistedDelegation): Promise<PersistedDelegation> {
+    this.options.assertMutable(card.projectId, card.sessionId, 'mutate')
+    const session = materializeSessionConversationGraph(
+      await this.loadRuntimeContextSession(card.projectId, card.sessionId, 'patch')
+    )
+    if (session.delegations?.some((candidate) => candidate.id === card.id)) {
+      throw new Error(`Delegation already exists: ${card.id}`)
+    }
+    if (!session.conversationGraph) throw new Error('Delegation Session graph is unavailable.')
+    const conversationGraph = createChildAgentFrame(session.conversationGraph, {
+      id: card.childFrameId,
+      parentFrameId: card.parentFrameId,
+      originMessageId: card.originMessageId,
+      kind: 'delegate',
+      createdAt: card.createdAt,
+      agentName: card.role,
+      delegateName: card.role
+    })
+    const durable = {
+      ...session,
+      conversationGraph,
+      delegations: [...(session.delegations ?? []), structuredClone(card)],
+      updatedAt: Math.max(session.updatedAt + 1, card.updatedAt, Date.now())
+    }
+    await this.options.repository.saveSession(durable)
+    this.recordSession(durable)
+    return structuredClone(card)
+  }
+
+  async getDelegation(
+    projectId: string,
+    sessionId: string,
+    delegationId: string
+  ): Promise<PersistedDelegation | undefined> {
+    const session = await this.loadRuntimeContextSession(projectId, sessionId, 'read')
+    return structuredClone(session.delegations?.find((candidate) => candidate.id === delegationId))
+  }
+
+  async listDelegations(
+    projectId: string,
+    sessionId: string
+  ): Promise<readonly PersistedDelegation[]> {
+    const session = await this.loadRuntimeContextSession(projectId, sessionId, 'read')
+    return structuredClone(session.delegations ?? [])
+  }
+
+  async updateDelegation(
+    projectId: string,
+    sessionId: string,
+    delegationId: string,
+    update: Partial<PersistedDelegation>
+  ): Promise<PersistedDelegation> {
+    this.options.assertMutable(projectId, sessionId, 'mutate')
+    const session = materializeSessionConversationGraph(
+      await this.loadRuntimeContextSession(projectId, sessionId, 'patch')
+    )
+    const index = session.delegations?.findIndex((candidate) => candidate.id === delegationId) ?? -1
+    if (index < 0) throw new Error(`Unknown Delegation: ${delegationId}`)
+    const current = session.delegations![index]
+    const next = {
+      ...current,
+      ...structuredClone(update),
+      updatedAt: Math.max(current.updatedAt + 1, Date.now())
+    }
+    const delegations = [...session.delegations!]
+    delegations[index] = next
+    const durable = { ...session, delegations, updatedAt: next.updatedAt }
+    await this.options.repository.saveSession(durable)
+    this.recordSession(durable)
+    return structuredClone(next)
+  }
+
   async getSideQuestionCard(
     projectId: string,
     sessionId: string,
@@ -535,6 +608,7 @@ class SessionPersistenceStateOwner {
     delete rendererOwnedSession.runtimeContext
     delete rendererOwnedSession.archivedAt
     delete rendererOwnedSession.sideQuestions
+    delete rendererOwnedSession.delegations
     const authority = authoritative.status === 'found' ? authoritative.session : undefined
     const mainOwnedStatus =
       authority?.status === 'waiting-plan-approval' ||
@@ -546,6 +620,7 @@ class SessionPersistenceStateOwner {
       ...(authority?.runtimeContext ? { runtimeContext: authority.runtimeContext } : {}),
       ...(authority?.archivedAt ? { archivedAt: authority.archivedAt } : {}),
       ...(authority?.sideQuestions ? { sideQuestions: authority.sideQuestions } : {}),
+      ...(authority?.delegations ? { delegations: authority.delegations } : {}),
       ...(mainOwnedStatus ? { status: mainOwnedStatus } : {}),
       updatedAt:
         authority?.runtimeContext || mainOwnedStatus
